@@ -1,0 +1,42 @@
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Local SQLite Database & Storage
+*.db
+*.db-shm
+*.db-wal
+aira_storage.db*
+aira_auth_store.json
+aira_chat_store.json
+view_my_data.json
+
+# Logs & Evaluation Artifacts
+*.log
+round_*.log
+eval_*.log
+eval_results.json
+eval_case2.json
+
+# IDE & Editor Configs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/

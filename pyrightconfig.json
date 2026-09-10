@@ -1,0 +1,13 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": [
+    "aira",
+    "tests",
+    "database.py"
+  ],
+  "extraPaths": [
+    ".",
+    ".venv/Lib/site-packages"
+  ]
+}
