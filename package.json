@@ -1,0 +1,13 @@
+{
+  "name": "researchpilot",
+  "version": "1.0.0",
+  "description": "AIRA — Next-Gen Autonomous AI Research Assistant & Multi-Engine Intelligence",
+  "main": "public/index.html",
+  "scripts": {
+    "build": "node -e \"console.log('Static build ready in public/')\"",
+    "start": "python -m uvicorn aira.server:app --host 0.0.0.0 --port 8000"
+  },
+  "keywords": ["ai", "research-agent", "fastapi", "python"],
+  "author": "Ksai-24",
+  "license": "MIT"
+}
