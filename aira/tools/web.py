@@ -1,4 +1,4 @@
-"""High-performance web tools: keyless multi-tier search (Bing + Wikipedia + DDG), URL unwrapping, fast page fetch & bounded TTL caching."""
+import asyncio
 import base64
 import logging
 import re
@@ -57,6 +57,21 @@ class BoundedTTLCache:
                 for k in sorted_keys[: max(1, self.max_size // 5)]:
                     del self._store[k]
         self._store[key] = (now, val)
+
+    def __getitem__(self, key: str) -> Any:
+        val = self.get(key)
+        if val is None:
+            raise KeyError(key)
+        return val
+
+    def __setitem__(self, key: str, val: Any) -> None:
+        if isinstance(val, tuple) and len(val) == 2 and isinstance(val[0], (int, float)):
+            self._store[key] = (float(val[0]), val[1])
+        else:
+            self.set(key, val)
+
+    def __contains__(self, key: str) -> bool:
+        return self.get(key) is not None
 
     def clear(self) -> None:
         self._store.clear()
@@ -267,7 +282,7 @@ async def _search_ddg(client: httpx.AsyncClient, query: str, max_results: int) -
 
 
 async def web_search(query: str, max_results: int = 6) -> Dict[str, Any]:
-    """Search the web with low latency using multi-tier engines (Bing + StackOverflow + Wikipedia + DDG) with URL unwrapping and bounded TTL caching."""
+    """Search the web with low latency using parallel multi-tier engines (Bing + StackOverflow + Wikipedia + DDG) with URL unwrapping and bounded TTL caching."""
     q_norm = query.strip().lower()
 
     # Bounded in-memory cache check
@@ -281,32 +296,39 @@ async def web_search(query: str, max_results: int = 6) -> Dict[str, Any]:
     # Check if query is programming/code/error related
     is_code = any(k in q_norm for k in ("error", "exception", "python", "js", "javascript", "code", "bug", "traceback", "fix", "asyncio", "fastapi", "rust", "react", "def ", "class ", "import ", "syntax", "null", "undefined"))
 
+    # Parallel search dispatch across primary engines for sub-second retrieval
+    search_tasks = [
+        _search_bing(client, query, max_results),
+        _search_wikipedia(client, query, max_results=2),
+    ]
     if is_code:
-        # Prioritize StackOverflow for code and programming issues
-        se_res = await _search_stackexchange(client, query, max_results=3)
-        results.extend(se_res)
+        search_tasks.append(_search_stackexchange(client, query, max_results=3))
 
-    # Tier 1: Bing HTML search with direct URL unwrapping
-    bing_res = await _search_bing(client, query, max_results)
-    for b in bing_res:
-        if not any(r["url"] == b["url"] for r in results):
-            results.append(b)
+    gathered = await asyncio.gather(*search_tasks, return_exceptions=True)
+    seen_urls = set()
 
-    # Tier 2: Complement with Wikipedia OpenSearch if technical/scientific or if Bing returned few results
-    if len(results) < max_results:
-        wiki_res = await _search_wikipedia(client, query, max_results=2)
-        for w in wiki_res:
-            if not any(r["url"] == w["url"] for r in results):
-                results.append(w)
+    # If code query, prioritize StackOverflow results first
+    if is_code and len(gathered) > 2 and isinstance(gathered[2], list):
+        for item in gathered[2]:
+            if item["url"] not in seen_urls:
+                seen_urls.add(item["url"])
+                results.append(item)
 
-    # Tier 3: If still sparse and not yet queried StackExchange, query StackExchange
-    if len(results) < 2 and not is_code:
-        se_res = await _search_stackexchange(client, query, max_results=3)
-        for s in se_res:
-            if not any(r["url"] == s["url"] for r in results):
-                results.append(s)
+    # Add Bing search results
+    if len(gathered) > 0 and isinstance(gathered[0], list):
+        for item in gathered[0]:
+            if item["url"] not in seen_urls:
+                seen_urls.add(item["url"])
+                results.append(item)
 
-    # Tier 4: Fallback to DuckDuckGo if still empty
+    # Add Wikipedia encyclopedic overviews
+    if len(gathered) > 1 and isinstance(gathered[1], list):
+        for item in gathered[1]:
+            if item["url"] not in seen_urls:
+                seen_urls.add(item["url"])
+                results.append(item)
+
+    # Fallback to DuckDuckGo if still empty
     if not results:
         try:
             results = await _search_ddg(client, query, max_results)
@@ -418,8 +440,36 @@ async def _fetch_stackoverflow(client: httpx.AsyncClient, url: str, max_chars: i
         return None
 
 
+async def _jina_fetch(client: httpx.AsyncClient, url: str, max_chars: int) -> Optional[Dict[str, Any]]:
+    """Fast secondary reader (r.jina.ai) to bypass Cloudflare/JS blocking with clean markdown in under 1.5s."""
+    try:
+        jina_url = f"https://r.jina.ai/{url}"
+        r = await client.get(
+            jina_url,
+            headers={"Accept": "text/plain", "User-Agent": "AiraBot/1.0"},
+            timeout=3.5,
+        )
+        if r.status_code == 200 and len(r.text.strip()) > 80:
+            title = url
+            m = re.search(r"Title:\s*(.+)", r.text)
+            if m:
+                title = m.group(1).strip()
+            text = re.sub(r"^Title:.*?\nURL Source:.*?\nMarkdown Content:\n", "", r.text, flags=re.DOTALL)
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+            return {
+                "url": url,
+                "title": title,
+                "text": text[:max_chars],
+                "truncated": len(text) > max_chars,
+                "via": "jina fast reader",
+            }
+    except Exception as e:
+        logger.debug("Jina reader fetch failed: %s", e)
+    return None
+
+
 async def fetch_page(url: str, max_chars: int = 4000) -> Dict[str, Any]:
-    """Fetch a web page with low latency, connection pooling, anti-bot resilience, and bounded TTL caching."""
+    """Fetch a web page with low latency, connection pooling, fast anti-bot resilience, and bounded TTL caching."""
     url = _unwrap_search_url(url.strip())
     
     # Bounded cache check
@@ -441,33 +491,32 @@ async def fetch_page(url: str, max_chars: int = 4000) -> Dict[str, Any]:
     last_err = ""
 
     try:
-        r = await client.get(url, timeout=5.0)
+        r = await client.get(url, timeout=3.5)
         r.raise_for_status()
     except httpx.HTTPStatusError as e:
         code = e.response.status_code
         last_err = f"HTTP {code}"
         if code in (403, 429, 503):
-            # Try Googlebot header bypass
-            try:
-                bot_h = {"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"}
-                r_bot = await client.get(url, headers=bot_h, timeout=4.0)
-                if r_bot.status_code == 200 and len(r_bot.text) > 400:
-                    r, via = r_bot, "googlebot bypass"
-            except Exception:
-                pass
-
-            if r is None:
-                wb = await _wayback_fetch(client, url)
-                if wb is not None:
-                    r, via = wb, "wayback archive"
+            # Fast Jina Reader fallback for anti-bot / Cloudflare blocked sites
+            jina_res = await _jina_fetch(client, url, max_chars)
+            if jina_res:
+                _FETCH_CACHE.set(url, jina_res)
+                return jina_res
     except Exception as e:
         last_err = f"{type(e).__name__}"
+        # If direct request timed out or connection failed, try Jina reader
+        jina_res = await _jina_fetch(client, url, max_chars)
+        if jina_res:
+            _FETCH_CACHE.set(url, jina_res)
+            return jina_res
+
+    if r is None:
+        # Fast Wayback Machine check as secondary fallback
         wb = await _wayback_fetch(client, url)
         if wb is not None:
             r, via = wb, "wayback archive"
 
     if r is None:
-        # Do not raise fatal exception — return readable citation note so agent flow never breaks
         fallback_res = {
             "url": url,
             "title": url,
@@ -497,6 +546,12 @@ async def fetch_page(url: str, max_chars: int = 4000) -> Dict[str, Any]:
         text = _strip_wayback_noise(text)
 
     if len(text.strip()) < 60:
+        # Site content is JS-rendered or verification gated: try fast Jina Reader
+        jina_res = await _jina_fetch(client, url, max_chars)
+        if jina_res:
+            _FETCH_CACHE.set(url, jina_res)
+            return jina_res
+
         res = {
             "url": str(r.url),
             "title": title,

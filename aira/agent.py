@@ -332,23 +332,25 @@ async def run_agent(mode: str, depth: str, question: str) -> AsyncGenerator[Dict
                     "tool_calls": [tc.model_dump() for tc in tool_calls],
                 }
             )
+            parsed_calls = []
             for tc in tool_calls:
                 fn = tc.function.name
                 try:
                     args = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
+                parsed_calls.append((tc, fn, args))
                 yield {
                     "tool": fn,
                     "status": STATUS_LINES.get(fn, "Working"),
                     "args": {k: (v if len(str(v)) < 90 else str(v)[:87] + "…") for k, v in args.items()},
                 }
+
+            async def _run_tool_call(tc_obj: Any, fn_name: str, fn_args: Dict[str, Any]) -> Tuple[Any, str, str]:
                 try:
-                    result = await dispatch(fn, args)
+                    result = await dispatch(fn_name, fn_args)
                     payload = json.dumps(result, ensure_ascii=False, default=str)
                 except ValueError as e:
-                    # Hallucinated/renamed tool name: tell the model exactly what
-                    # exists so it can self-correct on the next round.
                     avail = ", ".join(tool_names)
                     payload = json.dumps({
                         "error": (
@@ -357,8 +359,15 @@ async def run_agent(mode: str, depth: str, question: str) -> AsyncGenerator[Dict
                             "using one of those exact tool names."
                         )
                     })
-                except Exception as e:  # surface the error to the model honestly
+                except Exception as e:
                     payload = json.dumps({"error": f"{type(e).__name__}: {e}"})
+                return tc_obj, fn_name, payload
+
+            tool_results = await asyncio.gather(
+                *[_run_tool_call(tc, fn, args) for tc, fn, args in parsed_calls]
+            )
+
+            for tc, fn, payload in tool_results:
                 yield {"tool_result": fn, "ok": not payload.startswith('{"error"')}
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.id, "content": payload[:60000]}
