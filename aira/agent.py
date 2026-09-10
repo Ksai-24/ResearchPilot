@@ -5,7 +5,7 @@ Streams agent-level events (not token deltas): 'status', 'tool', 'tool_result',
 """
 import asyncio
 import json
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from . import config
 from .tools import dispatch, TOOL_SCHEMAS, RESEARCH_TOOLS, BUGFIX_TOOLS
