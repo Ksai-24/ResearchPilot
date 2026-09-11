@@ -162,6 +162,90 @@ class ChatModel(Base):
         }
 
 
+def _migrate_sqlite_schema(engine: Any):
+    """Automatically upgrades legacy SQLite tables to matching SQLAlchemy ORM schema."""
+    if "sqlite" not in str(engine.url):
+        return
+
+    import re
+    with engine.begin() as con:
+        # 1. Check users table
+        has_users = con.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='users';")).fetchone()
+        if has_users:
+            cols = [r[1] for r in con.execute(text("PRAGMA table_info(users);")).fetchall()]
+            if "user_id" not in cols and "id" in cols:
+                legacy_users = con.execute(text("SELECT id, username, email, password_hash, salt, created_at FROM users;")).fetchall()
+                con.execute(text("ALTER TABLE users RENAME TO users_legacy_backup;"))
+                con.execute(text("""
+                    CREATE TABLE users (
+                        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username VARCHAR(50) NOT NULL UNIQUE,
+                        email VARCHAR(100) NOT NULL UNIQUE,
+                        password_hash VARCHAR(255) NOT NULL,
+                        created_at DATETIME
+                    );
+                """))
+                for row in legacy_users:
+                    uid, uname, uemail, phash, salt, cat = row
+                    combined_hash = f"{salt}${phash}" if salt and "$" not in str(phash) else phash
+                    con.execute(
+                        text("INSERT INTO users (user_id, username, email, password_hash, created_at) VALUES (:uid, :un, :em, :ph, :ca);"),
+                        {"uid": uid, "un": uname, "em": uemail, "ph": combined_hash, "ca": cat}
+                    )
+                con.execute(text("DROP TABLE users_legacy_backup;"))
+
+        # 2. Check chats table
+        has_chats = con.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='chats';")).fetchone()
+        if has_chats:
+            cols = [r[1] for r in con.execute(text("PRAGMA table_info(chats);")).fetchall()]
+            if "chat_id" not in cols and "messages_json" in cols:
+                legacy_chats = con.execute(text("SELECT id, title, kind, messages_json, created, updated, user_id FROM chats;")).fetchall()
+                con.execute(text("ALTER TABLE chats RENAME TO chats_legacy_backup;"))
+                con.execute(text("""
+                    CREATE TABLE chats (
+                        chat_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        sender_id INTEGER,
+                        message_text TEXT NOT NULL,
+                        sent_at DATETIME,
+                        FOREIGN KEY(sender_id) REFERENCES users (user_id) ON DELETE CASCADE
+                    );
+                """))
+                for row in legacy_chats:
+                    cid_raw, title, kind, msgs_json, created, updated, uid = row
+                    int_id = None
+                    if isinstance(cid_raw, str):
+                        digits = re.sub(r"\D", "", cid_raw)
+                        if digits:
+                            int_id = int(digits)
+                    elif isinstance(cid_raw, int):
+                        int_id = cid_raw
+
+                    try:
+                        msgs = json.loads(msgs_json) if msgs_json else []
+                    except Exception:
+                        msgs = []
+
+                    payload = json.dumps({
+                        "title": title or "Chat",
+                        "kind": kind or "research",
+                        "messages": msgs,
+                        "created": created or int(time.time() * 1000),
+                        "updated": updated or int(time.time() * 1000),
+                    }, ensure_ascii=False)
+
+                    if int_id is not None:
+                        con.execute(
+                            text("INSERT INTO chats (chat_id, sender_id, message_text, sent_at) VALUES (:cid, :sid, :msg, :sent);"),
+                            {"cid": int_id, "sid": uid, "msg": payload, "sent": datetime.now(timezone.utc)}
+                        )
+                    else:
+                        con.execute(
+                            text("INSERT INTO chats (sender_id, message_text, sent_at) VALUES (:sid, :msg, :sent);"),
+                            {"sid": uid, "msg": payload, "sent": datetime.now(timezone.utc)}
+                        )
+                con.execute(text("DROP TABLE chats_legacy_backup;"))
+
+
 # =====================================================================
 # Database Engine Initialization
 # =====================================================================
@@ -201,6 +285,7 @@ def get_db_engine():
         con.execute(text("PRAGMA journal_mode=WAL;"))
         con.execute(text("PRAGMA foreign_keys=ON;"))
         con.commit()
+    _migrate_sqlite_schema(engine)
     Base.metadata.create_all(bind=engine)
     return engine, f"SQLite ({LOCAL_SQL_FILE.name})"
 
