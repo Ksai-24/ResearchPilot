@@ -22,19 +22,67 @@ TOTAL_CHAR_BUDGET = 70_000
 STATUS_LINES = {
     "web_search": "Searching the web",
     "fetch_page": "Reading a source",
+    "fetch_pages": "Reading multiple sources in parallel",
     "run_python": "Running code to verify",
     "search_documents": "Searching uploaded documents",
 }
 
 
-def _chat_kwargs(route: Dict[str, Any], messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], stream: bool) -> Dict[str, Any]:
+def _sanitize_messages_for_route(
+    messages: List[Dict[str, Any]],
+    is_gemini: bool = False,
+    force_no_tools: bool = False,
+) -> List[Dict[str, Any]]:
+    """Ensure message history conforms to provider requirements.
+
+    When switching to Gemini or forcing no tools, converts tool results and
+    assistant tool_call markers into standard user/assistant chat turns to prevent
+    'thought_signature' or 'tool_call_id' schema errors.
+    """
+    if is_gemini or force_no_tools:
+        sanitized: List[Dict[str, Any]] = []
+        for m in messages:
+            role = m.get("role")
+            if role == "tool":
+                content = m.get("content") or ""
+                sanitized.append({
+                    "role": "user",
+                    "content": f"[Tool Observation]:\n{content}",
+                })
+            elif role == "assistant" and "tool_calls" in m and (is_gemini or force_no_tools):
+                content = m.get("content") or ""
+                tool_names = [
+                    tc.get("function", {}).get("name", "")
+                    for tc in m.get("tool_calls", [])
+                    if isinstance(tc, dict)
+                ]
+                if tool_names and not content:
+                    content = f"[Executed research tools: {', '.join(filter(None, tool_names))}]"
+                sanitized.append({"role": "assistant", "content": content})
+            else:
+                sanitized.append(m)
+        return sanitized
+    return messages
+
+
+def _chat_kwargs(
+    route: Dict[str, Any],
+    messages: List[Dict[str, Any]],
+    tools: List[Dict[str, Any]],
+    stream: bool,
+    force_no_tools: bool = False,
+) -> Dict[str, Any]:
+    base_url = getattr(route.get("client"), "base_url", "")
+    is_gemini = "generativelanguage.googleapis.com" in str(base_url) or "gemini" in str(route.get("model", "")).lower()
+
+    sanitized_messages = _sanitize_messages_for_route(messages, is_gemini=is_gemini, force_no_tools=force_no_tools)
     kwargs: Dict[str, Any] = {
         "model": route.get("model") or config.MODEL,
-        "messages": messages,
+        "messages": sanitized_messages,
         "stream": stream,
         "timeout": config.REQUEST_TIMEOUT,
     }
-    if tools:
+    if tools and not force_no_tools:
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
     if config.TEMPERATURE != "":
@@ -119,14 +167,25 @@ async def _create_with_retry(route: Dict[str, Any], kwargs: Dict[str, Any], requ
         current_route = load_balancer.get_route(force_secondary=True)
 
     client = current_route["client"]
-    target_model = kwargs.get("model") or current_route.get("model") or config.MODEL
-    models = [target_model] + [
-        m for m in config.FALLBACK_MODELS if m != target_model
-    ]
+    target_model = current_route.get("model") or kwargs.get("model") or config.MODEL
+    models = [target_model]
+    if current_route.get("provider") == "primary":
+        models += [m for m in config.FALLBACK_MODELS if m != target_model]
     last_exc = None
     for model in models:
         for attempt in range(2):
-            call_kwargs = {**kwargs, "model": model}
+            call_kwargs = dict(kwargs)
+            call_kwargs["model"] = model
+            base_url = getattr(client, "base_url", "")
+            is_gemini = "generativelanguage.googleapis.com" in str(base_url) or "gemini" in model.lower()
+            is_groq = "groq.com" in str(base_url)
+            if is_groq and int(call_kwargs.get("max_tokens", 4096)) > 900:
+                call_kwargs["max_tokens"] = 900
+            call_kwargs["messages"] = _sanitize_messages_for_route(
+                call_kwargs.get("messages", []),
+                is_gemini=is_gemini,
+                force_no_tools="tools" not in call_kwargs,
+            )
             try:
                 resp = await client.chat.completions.create(**call_kwargs)
                 if _resp_ok(resp, require_content):
@@ -138,7 +197,7 @@ async def _create_with_retry(route: Dict[str, Any], kwargs: Dict[str, Any], requ
                 msg = str(e)
                 is_limit = any(
                     s in msg
-                    for s in ("rate_limit", "rate limit", "tokens per minute", "TPM",
+                    for s in ("rate_limit", "rate limit", "tokens per minute", "TPM", "OTPM",
                               "Request too large", "413", "429", "capacity", "503",
                               "insufficient_user_quota", "credit limit is insufficient",
                               "quota is running low", "402", "403")
@@ -154,7 +213,18 @@ async def _create_with_retry(route: Dict[str, Any], kwargs: Dict[str, Any], requ
                     client = current_route["client"]
                     sec_model = current_route.get("model") or config.SECONDARY_MODEL
                     try:
-                        sec_kwargs = {**kwargs, "model": sec_model}
+                        sec_kwargs = dict(kwargs)
+                        sec_kwargs["model"] = sec_model
+                        sec_base_url = getattr(client, "base_url", "")
+                        sec_is_gemini = "generativelanguage.googleapis.com" in str(sec_base_url) or "gemini" in sec_model.lower()
+                        sec_is_groq = "groq.com" in str(sec_base_url)
+                        if sec_is_groq and int(sec_kwargs.get("max_tokens", 4096)) > 900:
+                            sec_kwargs["max_tokens"] = 900
+                        sec_kwargs["messages"] = _sanitize_messages_for_route(
+                            sec_kwargs.get("messages", []),
+                            is_gemini=sec_is_gemini,
+                            force_no_tools="tools" not in sec_kwargs,
+                        )
                         resp = await client.chat.completions.create(**sec_kwargs)
                         if _resp_ok(resp, require_content):
                             return resp
@@ -165,7 +235,13 @@ async def _create_with_retry(route: Dict[str, Any], kwargs: Dict[str, Any], requ
                             tert_route = load_balancer.get_route(force_tertiary=True)
                             tert_client = tert_route["client"]
                             tert_model = tert_route.get("model") or config.TERTIARY_MODEL
-                            tert_kwargs = {**kwargs, "model": tert_model}
+                            tert_kwargs = dict(kwargs)
+                            tert_kwargs["model"] = tert_model
+                            tert_kwargs["messages"] = _sanitize_messages_for_route(
+                                tert_kwargs.get("messages", []),
+                                is_gemini=False,
+                                force_no_tools="tools" not in tert_kwargs,
+                            )
                             print(f"  [Switching to Tertiary API ({tert_model})]", flush=True)
                             resp = await tert_client.chat.completions.create(**tert_kwargs)
                             if _resp_ok(resp, require_content):
@@ -177,6 +253,28 @@ async def _create_with_retry(route: Dict[str, Any], kwargs: Dict[str, Any], requ
                 elif is_provider_flake:
                     print(f"  [upstream provider flake on {model} — trying next]", flush=True)
                     break  # next model in the chain
+                elif "tool_use_failed" in msg or "Tool choice is none" in msg or "tool_call_id" in msg:
+                    # Model called tool or provider format mismatch: fall back to secondary provider
+                    print(f"  [tool validation mismatch on {model} — trying secondary]", flush=True)
+                    current_route = load_balancer.get_route(force_secondary=True)
+                    client = current_route["client"]
+                    sec_model = current_route.get("model") or config.SECONDARY_MODEL
+                    try:
+                        sec_kwargs = dict(kwargs)
+                        sec_kwargs["model"] = sec_model
+                        sec_base_url = getattr(client, "base_url", "")
+                        sec_is_gemini = "generativelanguage.googleapis.com" in str(sec_base_url) or "gemini" in sec_model.lower()
+                        sec_kwargs["messages"] = _sanitize_messages_for_route(
+                            sec_kwargs.get("messages", []),
+                            is_gemini=sec_is_gemini,
+                            force_no_tools="tools" not in sec_kwargs,
+                        )
+                        resp = await client.chat.completions.create(**sec_kwargs)
+                        if _resp_ok(resp, require_content):
+                            return resp
+                    except Exception as sec_e:
+                        last_exc = sec_e
+                    break
                 elif attempt == 0:
                     if "401" in msg or "User not found" in msg or "invalid_api_key" in msg or "Unauthorized" in msg:
                         raise RuntimeError(
@@ -246,9 +344,15 @@ async def run_agent(mode: str, depth: str, question: str) -> AsyncGenerator[Dict
         tool_names = BUGFIX_TOOLS if mode == "BUG_FIX" else RESEARCH_TOOLS
         tools = [TOOL_SCHEMAS[n] for n in tool_names]
 
+        max_tool_rounds = config.MAX_TOOL_ROUNDS
+        if depth in ("1-mark", "short") and mode != "DEEP SEARCH":
+            max_tool_rounds = min(3, config.MAX_TOOL_ROUNDS)
+        elif mode != "DEEP SEARCH":
+            max_tool_rounds = min(5, config.MAX_TOOL_ROUNDS)
+
         rounds = 0
         while True:
-            if rounds >= config.MAX_TOOL_ROUNDS:
+            if rounds >= max_tool_rounds:
                 # Budget exhausted: force a real final answer with one no-tools call.
                 messages.append(
                     {
@@ -274,7 +378,7 @@ async def run_agent(mode: str, depth: str, question: str) -> AsyncGenerator[Dict
                     }
                 )
                 resp = await _create_with_retry(
-                    route, _chat_kwargs(route, messages, [], stream=False),
+                    route, _chat_kwargs(route, messages, tools, stream=False, force_no_tools=True),
                     require_content=True,
                 )
                 final = resp.choices[0].message.content or ""
@@ -292,7 +396,7 @@ async def run_agent(mode: str, depth: str, question: str) -> AsyncGenerator[Dict
                         }
                     )
                     resp = await _create_with_retry(
-                        route, _chat_kwargs(route, messages, [], stream=False),
+                        route, _chat_kwargs(route, messages, tools, stream=False, force_no_tools=True),
                         require_content=True,
                     )
                     final = resp.choices[0].message.content or ""
@@ -310,7 +414,7 @@ async def run_agent(mode: str, depth: str, question: str) -> AsyncGenerator[Dict
             tool_calls = msg.tool_calls or []
             if not tool_calls:
                 content = msg.content or ""
-                if _asks_permission(content) and rounds < config.MAX_TOOL_ROUNDS:
+                if _asks_permission(content) and rounds < max_tool_rounds:
                     messages.append(
                         {
                             "role": "user",
@@ -331,7 +435,7 @@ async def run_agent(mode: str, depth: str, question: str) -> AsyncGenerator[Dict
                         "Sources list. No internal syntax, no narration."
                     )})
                     resp = await _create_with_retry(
-                        route, _chat_kwargs(route, messages, [], stream=False),
+                        route, _chat_kwargs(route, messages, tools, stream=False, force_no_tools=True),
                         require_content=True,
                     )
                     content = resp.choices[0].message.content or ""
@@ -339,23 +443,7 @@ async def run_agent(mode: str, depth: str, question: str) -> AsyncGenerator[Dict
                 return
 
             rounds += 1
-            # Mid-loop nudge: at half budget, tell the model to wrap up retrieval
-            # and move to synthesis. Prevents endless near-identical searches.
-            if rounds == max(2, config.MAX_TOOL_ROUNDS // 2):
-                messages.append(
-                    {
-                        "role": "system",
-                        "content": (
-                            "Half of your tool budget is gone. You have enough search "
-                            "results: STOP searching for more and start fetching 1-3 of "
-                            "the most promising result URLs (or use the snippets you "
-                            "already have), then write the final answer. Search-result "
-                            "titles+URLs you already retrieved ARE valid citations — "
-                            "cite them as [n] with their URLs in the Sources list."
-                        ),
-                    }
-                )
-            # Append the assistant turn, then execute each tool call.
+            # 1. Append the assistant turn with tool_calls first (OpenAI API compliance)
             messages.append(
                 {
                     "role": "assistant",
@@ -394,12 +482,27 @@ async def run_agent(mode: str, depth: str, question: str) -> AsyncGenerator[Dict
                     payload = json.dumps({"error": f"{type(e).__name__}: {e}"})
                 return tc_obj, fn_name, payload
 
+            # 2. Execute tool calls concurrently in parallel
             tool_results = await asyncio.gather(
                 *[_run_tool_call(tc, fn, args) for tc, fn, args in parsed_calls]
             )
 
+            # 3. Append corresponding tool result messages immediately following assistant turn
             for tc, fn, payload in tool_results:
                 yield {"tool_result": fn, "ok": not payload.startswith('{"error"')}
                 messages.append(
                     {"role": "tool", "tool_call_id": tc.id, "content": payload[:60000]}
+                )
+
+            # 4. If approaching budget, nudge model to synthesize immediately
+            if rounds >= max_tool_rounds - 1:
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "You have collected sufficient research and scraping evidence above. "
+                            "Now synthesize and write your complete final answer to the user with a direct answer first, "
+                            "supporting headed sections with inline [n] citations, and the numbered Sources list."
+                        ),
+                    }
                 )

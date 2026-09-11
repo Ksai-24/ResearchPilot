@@ -40,3 +40,6 @@ eval_case2.json
 .pytest_cache/
 .coverage
 htmlcov/
+scratch/
+.agents/
+
