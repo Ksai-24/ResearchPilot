@@ -70,7 +70,7 @@ async def run_tests():
     print("  -> Passed! Password authenticated and new session token issued.")
 
     # 5. Test Google Sign-In / OAuth Flow
-    google_id = "109876543210987654321"
+    google_id = f"g_test_{os.urandom(6).hex()}"
     google_email = f"google_user_{os.urandom(3).hex()}@gmail.com"
     google_name = "Dr. Google Scientist"
     google_ip = "198.51.100.42"
