@@ -356,6 +356,31 @@ const KINDS = {
   bugfix:   { mode:'BUG_FIX',  depth:'short',       label:'Code & Fix',  badge:'🛠️ Code & Fix',  desc:'Sandboxed execution, debug & code repair',    hist:'Recent Code & Fix',  hero:'Paste broken code — Aira reproduces the bug in a sandbox, fixes it minimally, and verifies the fix.' },
 };
 
+// ---------------- Dynamic Backend Host & Resilient Safe JSON ----------------
+let customApiHost = localStorage.getItem('aira_backend_url') || '';
+function getApiHost() {
+  if (customApiHost) return customApiHost.replace(/\/+$/, '');
+  const loc = window.location;
+  if (loc.hostname === 'localhost' || loc.hostname === '127.0.0.1') return '';
+  return localStorage.getItem('aira_backend_url') || 'http://localhost:8000';
+}
+function api(path) {
+  const h = getApiHost();
+  if (!h) return path;
+  return h + (path.startsWith('/') ? path : '/' + path);
+}
+async function safeJson(response) {
+  if (!response) throw new Error('No response received from server');
+  const ct = response.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    if (response.status === 404) {
+      throw new Error('API endpoint not found. Ensure AIRA backend server is running on ' + (getApiHost() || 'http://localhost:8000'));
+    }
+    throw new Error('Backend server returned non-JSON response (' + response.status + '). Ensure AIRA backend is running.');
+  }
+  return await response.json();
+}
+
 // ---------------- per-user chat history (MySQL Database Isolation) ----------------
 let chats = [];
 
@@ -363,7 +388,7 @@ const saveChats = (specificChat = null) => {
   const token = localStorage.getItem('aira_auth_token');
   const target = specificChat || curChat();
   if (target && target.id && token) {
-    fetch('/api/chats', {
+    fetch(api('/api/chats'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -382,12 +407,12 @@ async function loadChatsFromDatabase() {
     return;
   }
   try {
-    const r = await fetch('/api/chats', {
+    const r = await fetch(api('/api/chats'), {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     if (r.ok) {
-      const j = await r.json();
-      if (j.ok && Array.isArray(j.chats)) {
+      const j = await safeJson(r);
+      if (j && j.ok && Array.isArray(j.chats)) {
         chats = j.chats;
         renderHistory();
         if (chats.length > 0 && !curId) {
@@ -474,7 +499,7 @@ function deleteChat(id) {
   chats = chats.filter(c => c.id !== id);
   if (curId === id) { curId = null; resetView(); }
   if (token) {
-    fetch('/api/chats/' + encodeURIComponent(id), {
+    fetch(api('/api/chats/' + encodeURIComponent(id)), {
       method: 'DELETE',
       headers: { 'Authorization': 'Bearer ' + token }
     }).catch(() => {});
@@ -652,7 +677,6 @@ messagesEl.addEventListener('click', e => {
     if (!c || busy) return;
     const lastUser = [...c.messages].reverse().find(m => m.role === 'user');
     if (!lastUser) return;
-    // re-ask with the same files if they were noted
     qEl.value = lastUser.text;
     send();
   }
@@ -665,7 +689,6 @@ $('#fileinput').addEventListener('change', async () => {
   if (!files.length) return;
 
   if (files.length > 5) {
-    // 50+ PDF Batch Mode
     const chipId = 'b' + Date.now();
     const chip = document.createElement('span');
     chip.className = 'flex items-center gap-2 text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg px-3 py-1.5 shadow-sm';
@@ -678,8 +701,8 @@ $('#fileinput').addEventListener('change', async () => {
     try {
       const fd = new FormData();
       for (const f of files) fd.append('files', f);
-      const r = await fetch('/api/upload-batch', { method: 'POST', body: fd });
-      const j = await r.json();
+      const r = await fetch(api('/api/upload-batch'), { method: 'POST', body: fd });
+      const j = await safeJson(r);
       if (!r.ok || !j.ok) throw new Error(j.error || 'Batch upload failed');
 
       attachedFiles.push({
@@ -699,7 +722,6 @@ $('#fileinput').addEventListener('change', async () => {
       setTimeout(() => { try { rm(); } catch {} }, 4000);
     }
   } else {
-    // Standard 1-5 files
     for (const f of files) {
       const chipId = 'f' + Date.now() + Math.random().toString(36).slice(2,6);
       const chip = document.createElement('span');
@@ -711,8 +733,8 @@ $('#fileinput').addEventListener('change', async () => {
       chip.querySelector('.x').addEventListener('click', rm);
       try {
         const fd = new FormData(); fd.append('file', f);
-        const r = await fetch('/api/upload', { method:'POST', body: fd });
-        const j = await r.json();
+        const r = await fetch(api('/api/upload'), { method:'POST', body: fd });
+        const j = await safeJson(r);
         if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
         attachedFiles.push({ chipId, name: f.name, text: j.text, chars: j.chars, truncated: !!j.truncated });
         st.textContent = '✓ ' + (j.chars > 1000 ? Math.round(j.chars/1000) + 'k chars' : j.chars + ' chars');
@@ -766,7 +788,7 @@ $$('.fmtbtn').forEach(b => b.addEventListener('click', async () => {
   const c = curChat(); if (!c) { closeModal(); return; }
   b.disabled = true;
   try {
-    const r = await fetch('/api/export', {
+    const r = await fetch(api('/api/export'), {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ format: b.dataset.fmt, mode: KINDS[kind].mode, title: c.title, messages: c.messages })
     });
@@ -823,7 +845,7 @@ async function send() {
     const askHeaders = { 'Content-Type': 'application/json' };
     if (token) askHeaders['Authorization'] = 'Bearer ' + token;
 
-    const res = await fetch('/api/ask', {
+    const res = await fetch(api('/api/ask'), {
       method: 'POST',
       headers: askHeaders,
       body: JSON.stringify({ mode: K.mode, depth: K.depth, question })
@@ -856,7 +878,7 @@ async function send() {
     chat.messages.push({ role:'assistant', text: answer, sources, tools: toolsUsed, elapsed });
     chat.updated = Date.now(); saveChats(); renderHistory();
 
-    // suggested follow-ups (honest templates built from the actual question)
+    // suggested follow-ups
     if (q) {
       const topic = q.replace(/[?.!]+$/,'').slice(0, 60);
       const sug = document.createElement('div');
@@ -927,9 +949,9 @@ async function checkAuth() {
     return;
   }
   try {
-    const r = await fetch('/api/auth/me', { headers: { 'Authorization': 'Bearer ' + token } });
-    const j = await r.json();
-    if (r.ok && j.user) {
+    const r = await fetch(api('/api/auth/me'), { headers: { 'Authorization': 'Bearer ' + token } });
+    const j = await safeJson(r);
+    if (r.ok && j && j.user) {
       updateAuthUI(j.user);
       hideAuthGateway();
       await loadChatsFromDatabase();
@@ -947,9 +969,9 @@ async function checkAuth() {
 // Initialize Google Identity Services
 async function initGoogleAuth() {
   try {
-    const r = await fetch('/api/auth/google/config');
-    const j = await r.json();
-    if (j.ok && j.client_id) {
+    const r = await fetch(api('/api/auth/google/config'));
+    const j = await safeJson(r);
+    if (j && j.ok && j.client_id) {
       googleClientId = j.client_id;
       if (window.google && window.google.accounts && window.google.accounts.id) {
         google.accounts.id.initialize({
@@ -966,12 +988,12 @@ async function initGoogleAuth() {
 async function handleGoogleAuthCredential(response) {
   $('#autherror').classList.add('hidden');
   try {
-    const r = await fetch('/api/auth/google', {
+    const r = await fetch(api('/api/auth/google'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ credential: response.credential }),
     });
-    const j = await r.json();
+    const j = await safeJson(r);
     if (!r.ok || !j.ok) throw new Error(j.error || 'Google authentication failed');
 
     localStorage.setItem('aira_auth_token', j.token);
@@ -986,11 +1008,9 @@ async function handleGoogleAuthCredential(response) {
 
 $('#googleauthbtn').addEventListener('click', async () => {
   $('#autherror').classList.add('hidden');
-  // If Google client ID is configured and SDK is loaded, prompt standard Google One Tap / popup
   if (googleClientId && window.google && window.google.accounts && window.google.accounts.id) {
     google.accounts.id.prompt((notification) => {
       if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-        // Fallback: render button if prompt blocked
         const wrap = $('#g_id_signin_wrap');
         wrap.classList.remove('hidden');
         google.accounts.id.renderButton(wrap, { theme: 'outline', size: 'large', width: 280 });
@@ -999,13 +1019,12 @@ $('#googleauthbtn').addEventListener('click', async () => {
     return;
   }
 
-  // Developer / Direct Google Sign-In prompt if client ID is not yet provisioned in .env
   const inputEmail = prompt('Enter your Google Account email to Sign in with Google:', 'saianandk999@gmail.com');
   if (!inputEmail || !inputEmail.includes('@')) return;
   const displayName = inputEmail.split('@')[0];
 
   try {
-    const r = await fetch('/api/auth/google', {
+    const r = await fetch(api('/api/auth/google'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1015,7 +1034,7 @@ $('#googleauthbtn').addEventListener('click', async () => {
         picture: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=6366F1&color=fff`,
       }),
     });
-    const j = await r.json();
+    const j = await safeJson(r);
     if (!r.ok || !j.ok) throw new Error(j.error || 'Google login failed');
 
     localStorage.setItem('aira_auth_token', j.token);
@@ -1066,12 +1085,12 @@ $('#authform').addEventListener('submit', async e => {
   try {
     const url = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
     const payload = authMode === 'register' ? { username, email, password } : { username_or_email: username, password };
-    const r = await fetch(url, {
+    const r = await fetch(api(url), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const j = await r.json();
+    const j = await safeJson(r);
     if (!r.ok || !j.ok) throw new Error(j.error || 'Authentication failed');
 
     localStorage.setItem('aira_auth_token', j.token);
@@ -1101,7 +1120,7 @@ $('#logoutbtn').addEventListener('click', async e => {
   e.stopPropagation();
   const token = localStorage.getItem('aira_auth_token');
   if (token) {
-    try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } }); } catch {}
+    try { await fetch(api('/api/auth/logout'), { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } }); } catch {}
     localStorage.removeItem('aira_auth_token');
   }
   chats = [];
@@ -1112,7 +1131,7 @@ $('#logoutbtn').addEventListener('click', async e => {
   showAuthGateway();
 });
 
-// ---------------- traffic & health status ----------------
+// ---------------- traffic & health status & backend configuration ----------------
 function updateTraffic(t) {
   if (!t) return;
   const dot = $('#trafficdot'), text = $('#traffictext'), badge = $('#trafficbadge');
@@ -1129,14 +1148,18 @@ function updateTraffic(t) {
 }
 
 function pollStatus() {
-  fetch('/api/health').then(r => r.json()).then(h => {
+  fetch(api('/api/health')).then(r => safeJson(r)).then(h => {
+    if (!h) return;
     const sb = $('#statusbadge');
     const isMysql = h.database && h.database.backend === 'mysql';
-    if (h.key_loaded) {
-      $('#statustext').textContent = isMysql ? 'Agent (MySQL online)' : 'Agent online';
-    } else {
-      sb.className = 'flex items-center space-x-2 px-3 py-1 bg-rose-50 border border-rose-200 rounded-full text-[11px] font-medium text-rose-700';
-      $('#statustext').textContent = 'No API key — set .env';
+    if (sb) {
+      if (h.key_loaded) {
+        sb.className = 'hidden lg:flex items-center space-x-2 px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-[11px] font-medium text-emerald-700 cursor-pointer';
+        $('#statustext').textContent = isMysql ? 'Agent (MySQL online)' : 'Agent online';
+      } else {
+        sb.className = 'hidden lg:flex items-center space-x-2 px-3 py-1 bg-rose-50 border border-rose-200 rounded-full text-[11px] font-medium text-rose-700 cursor-pointer';
+        $('#statustext').textContent = 'No API key — set .env';
+      }
     }
     if ($('#gatewaydbtag')) {
       $('#gatewaydbtag').textContent = isMysql ? 'MySQL chat_app Database Active' : 'Local Storage Engine Active';
@@ -1144,10 +1167,27 @@ function pollStatus() {
     if (h.traffic) updateTraffic(h.traffic);
   }).catch(() => {
     const sb = $('#statusbadge');
-    sb.className = 'flex items-center space-x-2 px-3 py-1 bg-rose-50 border border-rose-200 rounded-full text-[11px] font-medium text-rose-700';
-    $('#statustext').textContent = 'Server unreachable';
+    if (sb) {
+      sb.className = 'hidden lg:flex items-center space-x-2 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full text-[11px] font-medium text-amber-700 cursor-pointer';
+    }
+    if ($('#statustext')) $('#statustext').textContent = 'Backend offline (' + (getApiHost() || 'localhost:8000') + ')';
   });
 }
+
+function promptBackendUrl() {
+  const current = getApiHost() || 'http://localhost:8000';
+  const custom = prompt('Configure AIRA Backend API URL (leave blank for local http://localhost:8000):', current);
+  if (custom !== null) {
+    const trimmed = custom.trim();
+    if (trimmed) localStorage.setItem('aira_backend_url', trimmed);
+    else localStorage.removeItem('aira_backend_url');
+    customApiHost = trimmed;
+    pollStatus();
+    checkAuth();
+  }
+}
+const sbEl = $('#statusbadge');
+if (sbEl) sbEl.addEventListener('click', promptBackendUrl);
 
 // ---------------- init ----------------
 setKind('research');
