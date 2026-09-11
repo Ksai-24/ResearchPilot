@@ -114,24 +114,25 @@ def _is_raw_leak(text: str) -> bool:
 
 async def _create_with_retry(route: Dict[str, Any], kwargs: Dict[str, Any], require_content: bool = False) -> Any:
     """Create a completion, with retries, high-traffic switching, and model fallbacks."""
-    client = route["client"]
-    models = [kwargs.get("model") or route.get("model") or config.MODEL] + [
-        m for m in config.FALLBACK_MODELS if m != (kwargs.get("model") or config.MODEL)
+    current_route = dict(route)
+    if load_balancer.is_primary_cooling_down():
+        current_route = load_balancer.get_route(force_secondary=True)
+
+    client = current_route["client"]
+    target_model = kwargs.get("model") or current_route.get("model") or config.MODEL
+    models = [target_model] + [
+        m for m in config.FALLBACK_MODELS if m != target_model
     ]
     last_exc = None
     for model in models:
-        for attempt in range(3):
+        for attempt in range(2):
             call_kwargs = {**kwargs, "model": model}
             try:
                 resp = await client.chat.completions.create(**call_kwargs)
                 if _resp_ok(resp, require_content):
                     return resp
-                print(
-                    f"  [empty response from {model} — retrying ({attempt + 1}/3)]",
-                    flush=True,
-                )
                 last_exc = RuntimeError(f"{model} returned an empty response")
-                await asyncio.sleep(3)
+                await asyncio.sleep(1)
             except Exception as e:
                 last_exc = e
                 msg = str(e)
@@ -147,14 +148,32 @@ async def _create_with_retry(route: Dict[str, Any], kwargs: Dict[str, Any], requ
                     or "Provider for this model is currently unavailable" in msg
                 )
                 if is_limit:
-                    wait_s = 3 * (attempt + 1)
-                    print(f"  [rate/capacity limit on {model} — auto-routing to secondary API]", flush=True)
-                    load_balancer.report_rate_limit(route.get("provider", "primary"))
-                    new_route = load_balancer.get_route(force_secondary=True)
-                    client = new_route["client"]
-                    model = new_route["model"]
-                    route.update(new_route)
-                    await asyncio.sleep(wait_s)
+                    print(f"  [Switching to Secondary API ({config.SECONDARY_MODEL}) due to limit: {msg[:80]}]", flush=True)
+                    load_balancer.report_rate_limit(current_route.get("provider", "primary"))
+                    current_route = load_balancer.get_route(force_secondary=True)
+                    client = current_route["client"]
+                    sec_model = current_route.get("model") or config.SECONDARY_MODEL
+                    try:
+                        sec_kwargs = {**kwargs, "model": sec_model}
+                        resp = await client.chat.completions.create(**sec_kwargs)
+                        if _resp_ok(resp, require_content):
+                            return resp
+                    except Exception as sec_e:
+                        last_exc = sec_e
+                        print(f"  [Secondary failover attempt failed on {sec_model}: {sec_e}]", flush=True)
+                        try:
+                            tert_route = load_balancer.get_route(force_tertiary=True)
+                            tert_client = tert_route["client"]
+                            tert_model = tert_route.get("model") or config.TERTIARY_MODEL
+                            tert_kwargs = {**kwargs, "model": tert_model}
+                            print(f"  [Switching to Tertiary API ({tert_model})]", flush=True)
+                            resp = await tert_client.chat.completions.create(**tert_kwargs)
+                            if _resp_ok(resp, require_content):
+                                return resp
+                        except Exception as tert_e:
+                            last_exc = tert_e
+                            print(f"  [Tertiary failover attempt failed: {tert_e}]", flush=True)
+                    break
                 elif is_provider_flake:
                     print(f"  [upstream provider flake on {model} — trying next]", flush=True)
                     break  # next model in the chain
@@ -165,12 +184,8 @@ async def _create_with_retry(route: Dict[str, Any], kwargs: Dict[str, Any], requ
                             f"**Provider Details**: `{msg}`\n\n"
                             f"🔧 **How to Fix**:\n"
                             f"1. Open your `.env` file.\n"
-                            f"2. Set a valid `AIRA_API_KEY` from one of the following:\n"
-                            f"   - **OpenRouter (Free / Paid)**: https://openrouter.ai/keys\n"
-                            f"   - **Google Gemini (Free)**: https://aistudio.google.com/app/apikey (Set `AIRA_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/` and `AIRA_MODEL=gemini-2.0-flash`)\n"
-                            f"   - **Groq (Free)**: https://console.groq.com/keys (Set `AIRA_BASE_URL=https://api.groq.com/openai/v1` and `AIRA_MODEL=llama-3.3-70b-versatile`)\n"
-                            f"   - **OpenAI**: https://platform.openai.com/api-keys\n"
-                            f"3. Save `.env` — AIRA automatically hot-reloads your new key!"
+                            f"2. Set a valid `AIRA_API_KEY` from OpenRouter, Google Gemini, Groq, or OpenAI.\n"
+                            f"3. Save `.env` — AIRA will hot-reload your new key automatically!"
                         ) from e
                     raise  # genuine error (bad request): don't hammer
             if attempt == 2 and model != models[-1]:

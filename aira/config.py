@@ -42,7 +42,13 @@ def reload_config() -> None:
 
     SECONDARY_API_KEY = os.environ.get("AIRA_SECONDARY_API_KEY", "") or API_KEY
     SECONDARY_BASE_URL = os.environ.get("AIRA_SECONDARY_BASE_URL", BASE_URL)
-    SECONDARY_MODEL = os.environ.get("AIRA_SECONDARY_MODEL", "google/gemini-2.5-flash-lite")
+    SECONDARY_MODEL = os.environ.get("AIRA_SECONDARY_MODEL", "gemini-flash-latest")
+
+    TERTIARY_API_KEY = os.environ.get("AIRA_TERTIARY_API_KEY", "")
+    TERTIARY_BASE_URL = os.environ.get("AIRA_TERTIARY_BASE_URL", "https://openrouter.ai/api/v1")
+    TERTIARY_MODEL = os.environ.get("AIRA_TERTIARY_MODEL", "nvidia/nemotron-3.5-lightning:free")
+
+    GOOGLE_AI_KEY = os.environ.get("GOOGLE_AI_KEY", "")
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
 
@@ -55,14 +61,14 @@ load_env()
 # API and Model configuration
 API_KEY = os.environ.get("AIRA_API_KEY", "")
 BASE_URL = os.environ.get("AIRA_BASE_URL", "https://api.openai.com/v1")
-MODEL = os.environ.get("AIRA_MODEL", "gpt-4o-mini")
+MODEL = os.environ.get("AIRA_MODEL", "openai/gpt-oss-120b")
 JUDGE_MODEL = os.environ.get("AIRA_JUDGE_MODEL", MODEL)
 # If the primary model fails or returns a bad response, retry with these in order.
 FALLBACK_MODELS = [
     m.strip()
     for m in os.environ.get(
         "AIRA_FALLBACK_MODELS",
-        "openai/gpt-oss-20b,mistralai/mistral-nemo",
+        "openai/gpt-oss-20b",
     ).split(",")
     if m.strip()
 ]
@@ -73,10 +79,17 @@ REQUEST_TIMEOUT = float(os.environ.get("AIRA_TIMEOUT", "180"))
 TEMPERATURE = os.environ.get("AIRA_TEMPERATURE", "0.2")
 MAX_TOKENS = os.environ.get("AIRA_MAX_TOKENS", "4096")
 
-# Secondary / High-Traffic API configuration
+# Secondary / High-Traffic API configuration (Google Gemini)
 SECONDARY_API_KEY = os.environ.get("AIRA_SECONDARY_API_KEY", "") or API_KEY
 SECONDARY_BASE_URL = os.environ.get("AIRA_SECONDARY_BASE_URL", BASE_URL)
-SECONDARY_MODEL = os.environ.get("AIRA_SECONDARY_MODEL", "google/gemini-2.5-flash-lite")
+SECONDARY_MODEL = os.environ.get("AIRA_SECONDARY_MODEL", "gemini-flash-latest")
+
+# Tertiary / OpenRouter Free Fallback configuration
+TERTIARY_API_KEY = os.environ.get("AIRA_TERTIARY_API_KEY", "")
+TERTIARY_BASE_URL = os.environ.get("AIRA_TERTIARY_BASE_URL", "https://openrouter.ai/api/v1")
+TERTIARY_MODEL = os.environ.get("AIRA_TERTIARY_MODEL", "nvidia/nemotron-3.5-lightning:free")
+
+GOOGLE_AI_KEY = os.environ.get("GOOGLE_AI_KEY", "")
 
 # Concurrency & Load Balancing (tuned for 50 concurrent users)
 MAX_CONCURRENT_REQUESTS = int(os.environ.get("AIRA_MAX_CONCURRENT_REQUESTS", "50"))
