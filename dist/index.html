@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Aira — Next-Gen AI Research Assistant</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'monospace'],
+        },
+        colors: {
+          brand: { 50:'#EEF2FF', 100:'#E0E7FF', 500:'#6366F1', 600:'#4F46E5', 700:'#4338CA' }
+        },
+        boxShadow: {
+          'glow-cyan': '0 0 25px -4px rgba(14, 165, 233, 0.25)',
+          'glow-violet': '0 10px 25px -5px rgba(79, 70, 229, 0.3)',
+          'card-subtle': '0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03)',
+          'elevated': '0 20px 35px -5px rgba(15, 23, 42, 0.08), 0 8px 16px -4px rgba(15, 23, 42, 0.04)',
+        }
+      }
+    }
+  }
+</script>
+<style>
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(148,163,184,.3); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,.5); }
+  .bg-mesh-glow-light {
+    background:
+      radial-gradient(circle at 15% 10%, rgba(99,102,241,.05) 0%, transparent 45%),
+      radial-gradient(circle at 88% 20%, rgba(14,165,233,.05) 0%, transparent 40%),
+      radial-gradient(circle at 50% 95%, rgba(79,70,229,.04) 0%, transparent 50%),
+      #F8FAFC;
+  }
+  /* markdown body inside answer cards */
+  .md-body { color: #334155; font-size: .9375rem; line-height: 1.7; }
+  .md-body p { margin: .6rem 0; }
+  .md-body h2 { font-weight: 800; font-size: 1.05rem; margin: 1rem 0 .4rem; color: #0f172a; }
+  .md-body h3 { font-weight: 700; font-size: .95rem;  margin: .8rem 0 .3rem; color: #1e293b; }
+  .md-body h4 { font-weight: 700; font-size: .85rem;  margin: .6rem 0 .2rem; color: #334155; }
+  .md-body strong { color: #0f172a; font-weight: 700; }
+  .md-body a { color: #4f46e5; text-decoration: underline; text-underline-offset: 2px; }
+  .md-body code {
+    font-family: "JetBrains Mono", monospace; font-size: .8rem;
+    background: #eef2ff; color: #4338ca; border: 1px solid #e0e7ff;
+    padding: .1rem .35rem; border-radius: .375rem;
+  }
+  .md-body pre {
+    background: #0f172a; color: #e2e8f0; border-radius: .75rem; padding: .9rem 1rem;
+    overflow-x: auto; margin: .6rem 0; font-size: .8rem; line-height: 1.55;
+  }
+  .md-body pre code { background: none; border: none; color: inherit; padding: 0; }
+  .md-body ol, .md-body ul { padding-left: 1.4rem; margin: .5rem 0; list-style: revert; }
+  .md-body blockquote { border-left: 3px solid #a5b4fc; padding-left: .8rem; color: #475569; margin: .6rem 0; }
+  .md-body hr { border-color: #e2e8f0; margin: 1rem 0; }
+</style>
+</head>
+<body class="bg-mesh-glow-light text-slate-800 font-sans h-screen w-screen overflow-hidden flex flex-col antialiased selection:bg-indigo-500 selection:text-white">
+
+<!-- ===================== HEADER ===================== -->
+<header class="h-16 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl px-4 md:px-6 flex items-center justify-between z-30 shrink-0 select-none">
+  <div class="flex items-center space-x-3 md:space-x-6">
+    <div class="flex items-center space-x-2.5 group cursor-pointer" onclick="setKind('research'); newChat();" title="Reset to Research Phase">
+      <div class="relative flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-500 p-[1px] shadow-glow-violet transition-transform duration-300 group-hover:scale-105">
+        <div class="w-full h-full bg-white rounded-[11px] flex items-center justify-center">
+          <span class="font-extrabold text-lg text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-cyan-600">A</span>
+        </div>
+        <div class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-cyan-500 rounded-full blur-[0.5px] ring-2 ring-white"></div>
+      </div>
+      <div class="flex items-baseline space-x-1.5">
+        <span class="text-xl font-extrabold tracking-tight text-slate-900 group-hover:text-indigo-600 transition-colors">Aira</span>
+      </div>
+    </div>
+    <!-- 3-Mode Segmented Toggles (Always visible & interactive across all screens) -->
+    <nav class="flex items-center bg-slate-100/95 border border-slate-200/90 p-1 rounded-full text-xs font-medium text-slate-600 shadow-inner">
+      <button data-kind="research" class="kindbtn flex items-center space-x-1.5 px-3 py-1.5 rounded-full transition-all">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+        <span>Research</span>
+      </button>
+      <button data-kind="deep" class="kindbtn flex items-center space-x-1.5 px-3 py-1.5 rounded-full transition-all">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+        <span>Deep Search</span>
+      </button>
+      <button data-kind="bugfix" class="kindbtn flex items-center space-x-1.5 px-3 py-1.5 rounded-full transition-all">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+        <span>Code &amp; Fix</span>
+      </button>
+    </nav>
+  </div>
+
+  <div class="flex items-center space-x-2 md:space-x-3">
+    <!-- Active Platform Pill Badge -->
+    <div id="activeplatformpill" class="hidden sm:flex items-center space-x-1.5 px-3 py-1 bg-indigo-50 border border-indigo-200/90 rounded-full text-[11px] font-bold text-indigo-700 shadow-xs">
+      <span class="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+      <span id="activeplatformname">Mode: Research</span>
+    </div>
+
+    <div id="trafficbadge" class="hidden sm:flex items-center space-x-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-full text-[11px] font-medium text-slate-600" title="Load Balancer & API Status">
+      <span id="trafficdot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+      <span id="traffictext">Primary API</span>
+    </div>
+    <div id="statusbadge" class="hidden lg:flex items-center space-x-2 px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-[11px] font-medium text-emerald-700">
+      <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+      <span id="statustext">Connecting…</span>
+    </div>
+    <button id="download" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 shadow-sm transition-all">
+      <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+      <span class="hidden sm:inline">Export</span>
+    </button>
+    <!-- Auth Profile Container -->
+    <div id="authcontainer" class="flex items-center space-x-2">
+      <button id="signinbtn" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-all">Sign In</button>
+      <div id="userprofile" class="hidden items-center space-x-2 cursor-pointer bg-slate-100 hover:bg-slate-200/80 px-2 py-1 rounded-full border border-slate-200 transition">
+        <div id="useravatar" class="w-6 h-6 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center font-bold text-[10px] text-white shadow-sm">U</div>
+        <span id="usernametext" class="text-xs font-medium text-slate-700 max-w-[90px] truncate">User</span>
+        <button id="logoutbtn" title="Sign out" class="text-slate-400 hover:text-rose-500 text-xs px-1 font-bold">✕</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== WORKSPACE ===================== -->
+<div class="flex-1 flex overflow-hidden">
+
+  <!-- ---- LEFT SIDEBAR ---- -->
+  <aside class="w-64 bg-white border-r border-slate-200/80 flex flex-col justify-between shrink-0 select-none hidden md:flex">
+    <div class="p-3.5 flex flex-col h-full overflow-hidden">
+      <button id="newchat" class="w-full relative group overflow-hidden rounded-xl p-[1px] transition duration-300 hover:shadow-glow-violet focus:outline-none mb-4">
+        <span class="absolute inset-0 bg-gradient-to-r from-cyan-500 via-indigo-600 to-violet-600 transition-all duration-300"></span>
+        <div class="relative flex items-center justify-center space-x-2.5 px-4 py-2.5 rounded-[11px] bg-indigo-600 group-hover:bg-indigo-700 text-white transition-colors">
+          <svg class="w-4 h-4 text-cyan-200 group-hover:rotate-90 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"/></svg>
+          <span class="text-sm font-semibold tracking-wide" id="newchatlabel">New Research</span>
+        </div>
+      </button>
+      <div class="flex items-center justify-between px-2 text-[11px] font-semibold text-slate-400 tracking-wider uppercase mb-2">
+        <span id="histlabel">Recent Research</span>
+      </div>
+      <div id="chatlist" class="flex-1 overflow-y-auto space-y-1 pr-1"></div>
+      <div class="pt-3 mt-2 border-t border-slate-200">
+        <div class="bg-slate-50 border border-slate-200/90 rounded-xl p-2.5 flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <div class="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-[10px]">AI</div>
+            <div class="flex flex-col">
+              <span class="text-[11px] font-bold text-slate-800">Aira Agent</span>
+              <span class="text-[9px] text-slate-500">research • deep search • code fix</span>
+            </div>
+          </div>
+          <span class="text-[10px] text-emerald-600 font-mono font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">FREE</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ---- CENTER CHAT ---- -->
+  <main class="flex-1 flex flex-col min-w-0 bg-slate-50/50 relative overflow-hidden">
+    <div id="messages" class="flex-1 overflow-y-auto px-4 md:px-8 lg:px-12 py-6 space-y-7 max-w-4xl w-full mx-auto pb-40"></div>
+
+    <!-- empty state -->
+    <div id="emptyhero" class="absolute inset-0 flex flex-col items-center justify-center px-6 pointer-events-none">
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-500 p-[2px] shadow-glow-violet mb-5">
+        <div class="w-full h-full bg-white rounded-[14px] flex items-center justify-center">
+          <span class="font-extrabold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-cyan-600">A</span>
+        </div>
+      </div>
+      <h2 class="text-2xl font-extrabold text-slate-900 tracking-tight mb-2">What should we look into?</h2>
+      <p class="text-sm text-slate-500 max-w-md text-center leading-relaxed mb-6" id="herosub">Ask anything — Aira searches the web live, verifies weak leads, and answers with citations.</p>
+      <div class="flex flex-wrap gap-2 justify-center pointer-events-auto max-w-xl">
+        <button class="quickq text-xs bg-white hover:bg-slate-50 text-slate-700 hover:text-indigo-600 px-3 py-1.5 rounded-full border border-slate-200 hover:border-indigo-300 shadow-sm transition font-medium" data-q="What is herd immunity and why does it matter?">What is herd immunity? →</button>
+        <button class="quickq text-xs bg-white hover:bg-slate-50 text-slate-700 hover:text-indigo-600 px-3 py-1.5 rounded-full border border-slate-200 hover:border-indigo-300 shadow-sm transition font-medium" data-q="What are the latest breakthroughs in quantum computing?">Latest quantum computing breakthroughs →</button>
+        <button class="quickq text-xs bg-white hover:bg-slate-50 text-slate-700 hover:text-indigo-600 px-3 py-1.5 rounded-full border border-slate-200 hover:border-indigo-300 shadow-sm transition font-medium" data-q="Compare Rust and Python for backend performance">Rust vs Python performance →</button>
+      </div>
+    </div>
+
+    <!-- ---- FLOATING INPUT DOCK ---- -->
+    <div class="absolute bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-slate-50 via-slate-50/90 to-transparent pointer-events-none flex flex-col items-center z-20">
+      <div class="w-full max-w-3xl pointer-events-auto">
+        <div id="upbar" class="flex flex-wrap gap-1.5 mb-2"></div>
+        <!-- Active Platform Dock Indicator -->
+        <div id="dockmodebanner" class="flex items-center justify-between text-[11px] px-3 py-1 mb-1.5 bg-white/90 backdrop-blur-md rounded-xl border border-slate-200/90 shadow-sm">
+          <span class="flex items-center gap-1.5 font-semibold text-slate-700" id="dockmodetag">⚡ Current Platform: <span class="text-indigo-600 font-bold" id="dockmodebold">Research Mode</span></span>
+          <span class="text-[10px] text-slate-400 font-mono hidden sm:inline" id="dockmodedesc">Fast web search &amp; live citations</span>
+        </div>
+        <div class="relative bg-white border border-slate-200 rounded-2xl shadow-elevated p-2 transition-all focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100">
+          <div class="flex items-center px-2">
+            <textarea id="q" class="w-full bg-transparent border-0 text-slate-800 placeholder-slate-400 text-sm focus:ring-0 focus:outline-none resize-none py-2.5 max-h-32" placeholder="Ask a research question, paste broken code, or attach files…" rows="1"></textarea>
+          </div>
+          <div class="flex items-center justify-between pt-2 px-1.5 border-t border-slate-100">
+            <div class="flex items-center space-x-1.5">
+              <button id="attach" class="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition" title="Attach PDF, DOC, DOCX or TXT">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+              </button>
+              <button id="mic" class="p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 transition" title="Voice input — click to speak">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
+              </button>
+            </div>
+            <button id="send" class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 hover:from-indigo-700 hover:to-cyan-600 text-white flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed" title="Send">
+              <svg class="w-4 h-4 translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M14 5l7 7m0 0l-7 7m7-7H3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="text-[11px] text-center text-slate-500 mt-2 select-none tracking-tight">
+          Aira searches, verifies and cites — every claim links its source • Press <kbd class="px-1 py-0.5 bg-slate-200/80 rounded border border-slate-300 font-mono text-[10px] text-slate-700">Enter</kbd> to send
+        </p>
+        <input type="file" id="fileinput" accept=".pdf,.doc,.docx,.txt,.md,.csv" multiple hidden/>
+      </div>
+    </div>
+  </main>
+
+  <!-- ---- RIGHT SOURCES DRAWER ---- -->
+  <aside class="w-80 bg-white border-l border-slate-200/80 p-5 hidden xl:flex flex-col shrink-0 select-none overflow-y-auto">
+    <div class="space-y-5 flex-1">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-2">
+          <span class="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.5)]"></span>
+          <h3 class="text-xs font-bold uppercase tracking-widest text-slate-800">Sources &amp; Citations</h3>
+        </div>
+        <span class="text-[11px] font-mono font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full" id="srccount">0</span>
+      </div>
+      <div id="src-list" class="space-y-3">
+        <p class="text-xs text-slate-400 leading-relaxed">Citations from your current conversation will appear here as Aira gathers them.</p>
+      </div>
+      <div class="p-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-slate-50 border border-indigo-100">
+        <h5 class="text-xs font-bold text-slate-900 mb-2.5">How Aira answers</h5>
+        <div class="space-y-2 text-[11px] text-slate-600">
+          <div class="flex justify-between items-center"><span>Workflow:</span><span class="font-mono font-semibold text-indigo-700 bg-indigo-100/70 px-1.5 py-0.5 rounded">Decompose → Search → Verify → Cite</span></div>
+          <div class="flex justify-between items-center"><span>Search:</span><span class="font-mono font-semibold text-slate-800">Keyless web (DDG/Bing)</span></div>
+          <div class="flex justify-between items-center"><span>Code check:</span><span class="font-mono font-semibold text-slate-800">Sandboxed execution</span></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- ===================== EXPORT MODAL ===================== -->
+<div id="exportmodal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] hidden items-center justify-center p-4">
+  <div class="bg-white border border-slate-200 rounded-2xl shadow-elevated p-6 w-full max-w-sm">
+    <h3 class="text-lg font-extrabold text-slate-900 tracking-tight">Export Report</h3>
+    <p class="text-xs text-slate-500 mt-1 mb-4" id="exportsub">Choose a format</p>
+    <button class="fmtbtn w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition text-left mb-2" data-fmt="docx">
+      <span class="text-xl">📄</span>
+      <span><span class="block text-sm font-semibold text-slate-800">Word document</span><small class="block text-[11px] text-slate-500">.docx — opens in Word / Google Docs</small></span>
+    </button>
+    <button class="fmtbtn w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition text-left mb-2" data-fmt="pdf">
+      <span class="text-xl">📕</span>
+      <span><span class="block text-sm font-semibold text-slate-800">PDF</span><small class="block text-[11px] text-slate-500">.pdf — fixed layout, prints cleanly</small></span>
+    </button>
+    <button class="fmtbtn w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition text-left mb-3" data-fmt="txt">
+      <span class="text-xl">📝</span>
+      <span><span class="block text-sm font-semibold text-slate-800">Text file</span><small class="block text-[11px] text-slate-500">.txt — plain text, universal</small></span>
+    </button>
+    <button id="exportcancel" class="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition">Cancel</button>
+  </div>
+</div>
+
+<!-- ===================== MANDATORY AUTH GATEWAY PORTAL ===================== -->
+<div id="authgateway" class="fixed inset-0 bg-slate-900/75 backdrop-blur-2xl z-[999] flex items-center justify-center p-4 selection:bg-indigo-500 selection:text-white transition-opacity duration-300">
+  <div class="relative w-full max-w-md bg-white border border-slate-200/90 rounded-3xl shadow-2xl p-7 md:p-8 overflow-hidden">
+    <!-- Ambient glowing accents -->
+    <div class="absolute -top-24 -right-24 w-48 h-48 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-24 -left-24 w-48 h-48 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none"></div>
+
+    <div class="flex flex-col items-center text-center mb-5">
+      <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-500 p-[2px] shadow-glow-violet mb-3">
+        <div class="w-full h-full bg-white rounded-[13px] flex items-center justify-center">
+          <span class="font-extrabold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-cyan-600">A</span>
+        </div>
+      </div>
+      <h2 class="text-xl font-extrabold text-slate-900 tracking-tight">Identity Verification</h2>
+      <p class="text-xs text-slate-500 mt-1 max-w-xs leading-relaxed">Sign in to verify your account and load your private chats &amp; research data.</p>
+      <div class="mt-2.5 flex items-center space-x-1.5 px-3 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-[10px] font-semibold text-emerald-700">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="gatewaydbtag">MySQL chat_app Database Active</span>
+      </div>
+    </div>
+
+    <!-- Error / Status Toast -->
+    <div id="autherror" class="hidden mb-3.5 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-600 font-medium"></div>
+
+    <!-- Google Sign-In Primary Action -->
+    <div class="mb-3.5">
+      <button type="button" id="googleauthbtn" class="w-full flex items-center justify-center gap-3 py-2.5 px-4 bg-white border border-slate-300 hover:border-indigo-400 hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl shadow-xs transition duration-200 hover:shadow-sm">
+        <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        <span id="googlebtnlabel">Continue with Google</span>
+      </button>
+      <div id="g_id_signin_wrap" class="hidden mt-2 flex justify-center"></div>
+    </div>
+
+    <!-- Divider -->
+    <div class="relative flex py-1 items-center mb-3">
+      <div class="flex-grow border-t border-slate-200"></div>
+      <span class="flex-shrink mx-2.5 text-[10px] font-bold tracking-wider uppercase text-slate-400">or with password</span>
+      <div class="flex-grow border-t border-slate-200"></div>
+    </div>
+
+    <!-- Tab selection -->
+    <div class="flex space-x-2 border-b border-slate-200 mb-3.5 pb-1">
+      <button id="tablogin" class="flex-1 text-xs font-bold pb-2 text-indigo-600 border-b-2 border-indigo-600 transition text-center">Sign In</button>
+      <button id="tabregister" class="flex-1 text-xs font-semibold pb-2 text-slate-400 hover:text-slate-700 transition text-center">Create Account</button>
+    </div>
+
+    <!-- Form -->
+    <form id="authform" class="space-y-3">
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Username or Email</label>
+        <input type="text" id="authusername" required class="w-full text-xs px-3.5 py-2.5 bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition" placeholder="e.g. testuser or user@example.com" />
+      </div>
+      <div id="authemaildiv" class="hidden">
+        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Email Address</label>
+        <input type="email" id="authemail" class="w-full text-xs px-3.5 py-2.5 bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition" placeholder="user@example.com" />
+      </div>
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Password</label>
+        <input type="password" id="authpassword" required class="w-full text-xs px-3.5 py-2.5 bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition" placeholder="••••••••" />
+      </div>
+      <button type="submit" id="authsubmit" class="w-full py-2.5 mt-1 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-700 hover:to-cyan-700 text-white font-bold text-xs rounded-xl shadow-glow-violet transition duration-200 hover:scale-[1.01] active:scale-[0.99]">
+        Verify &amp; Enter Workspace →
+      </button>
+    </form>
+
+    <!-- Quick Demo Logins for Instant Testing -->
+    <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+      <span>Quick test accounts:</span>
+      <div class="flex gap-1.5">
+        <button type="button" class="quickauthchip px-2 py-0.5 rounded bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-[10px] font-mono font-medium transition" data-user="testuser" data-pass="Password123!">testuser</button>
+        <button type="button" class="quickauthchip px-2 py-0.5 rounded bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-[10px] font-mono font-medium transition" data-user="eswarasai" data-pass="Password123!">eswarasai</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const messagesEl = $('#messages'), qEl = $('#q'), sendEl = $('#send');
+const chatlistEl = $('#chatlist'), upbarEl = $('#upbar');
+let kind = 'research', busy = false, curId = null;
+let attachedFiles = [];
+
+const KINDS = {
+  research: { mode:'RESEARCH', depth:'short',       label:'Research',    badge:'⚡ Research',    desc:'Fast live web search & verified citations',   hist:'Recent Research',    hero:'Ask anything — Aira searches the web live, verifies weak leads, and answers with citations.' },
+  deep:     { mode:'RESEARCH', depth:'full theory', label:'Deep Search', badge:'🔬 Deep Search', desc:'Multi-turn deep investigation & comparison', hist:'Recent Deep Search',  hero:'Full-theory mode — Aira decomposes the question, gathers extensively, and surfaces where sources disagree.' },
+  bugfix:   { mode:'BUG_FIX',  depth:'short',       label:'Code & Fix',  badge:'🛠️ Code & Fix',  desc:'Sandboxed execution, debug & code repair',    hist:'Recent Code & Fix',  hero:'Paste broken code — Aira reproduces the bug in a sandbox, fixes it minimally, and verifies the fix.' },
+};
+
+// ---------------- per-user chat history (MySQL Database Isolation) ----------------
+let chats = [];
+
+const saveChats = (specificChat = null) => {
+  const token = localStorage.getItem('aira_auth_token');
+  const target = specificChat || curChat();
+  if (target && target.id && token) {
+    fetch('/api/chats', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify(target)
+    }).catch(() => {});
+  }
+};
+
+async function loadChatsFromDatabase() {
+  const token = localStorage.getItem('aira_auth_token');
+  if (!token) {
+    chats = [];
+    renderHistory();
+    return;
+  }
+  try {
+    const r = await fetch('/api/chats', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (r.ok) {
+      const j = await r.json();
+      if (j.ok && Array.isArray(j.chats)) {
+        chats = j.chats;
+        renderHistory();
+        if (chats.length > 0 && !curId) {
+          const first = kindChats()[0] || chats[0];
+          if (first) openChat(first.id);
+        }
+      }
+    }
+  } catch {}
+}
+
+const kindChats = () => chats.filter(c => c.kind === kind);
+const curChat = () => chats.find(c => c.id === curId && c.kind === kind) || null;
+
+function fmtWhen(ts) {
+  const d = new Date(ts), now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  return d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+function dayBucket(ts) {
+  const d = new Date(ts), now = new Date(), y = new Date(Date.now() - 864e5);
+  if (d.toDateString() === now.toDateString()) return 'Today';
+  if (d.toDateString() === y.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString([], {month:'short', day:'numeric'});
+}
+function renderHistory() {
+  const K = KINDS[kind];
+  $('#histlabel').textContent = K.hist;
+  $('#newchatlabel').textContent = 'New ' + K.label;
+  chatlistEl.innerHTML = '';
+  const list = kindChats().sort((a,b) => b.updated - a.updated);
+  if (!list.length) {
+    chatlistEl.innerHTML = '<p class="text-[11px] text-slate-400 px-2 py-3 leading-relaxed">No ' + K.label + ' sessions yet.<br/>Your history will appear here.</p>';
+    return;
+  }
+  let bucket = null;
+  list.forEach(c => {
+    const b = dayBucket(c.updated);
+    if (b !== bucket) { bucket = b;
+      const p = document.createElement('p');
+      p.className = 'text-[10px] uppercase font-bold text-slate-400 px-2 pt-3 pb-1';
+      p.textContent = b; chatlistEl.appendChild(p);
+    }
+    const item = document.createElement('div');
+    item.className = 'group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer border transition ' +
+      (c.id === curId ? 'bg-indigo-50/80 border-indigo-200/80 text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 border-transparent');
+    const left = document.createElement('div');
+    left.className = 'flex items-center space-x-2.5 overflow-hidden';
+    const dot = document.createElement('span');
+    dot.className = 'w-2 h-2 rounded-full shrink-0 ' + (c.id === curId ? 'bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.4)]' : 'bg-slate-300');
+    const col = document.createElement('div');
+    col.className = 'flex flex-col truncate';
+    const t = document.createElement('span'); t.className = 'text-xs font-semibold truncate';
+    if (c.id === curId) t.classList.add('text-slate-900'); t.textContent = c.title || '(untitled)';
+    const w = document.createElement('span'); w.className = 'text-[10px] text-slate-400 font-mono';
+    w.textContent = fmtWhen(c.updated) + (c.messages.some(m => m.sources && m.sources.length) ? ' • ' + c.messages.reduce((n,m)=>n+(m.sources?m.sources.length:0),0) + ' sources' : '');
+    col.append(t, w); left.append(dot, col);
+    const del = document.createElement('button');
+    del.className = 'opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 transition';
+    del.title = 'Delete'; del.textContent = '✕';
+    del.addEventListener('click', e => { e.stopPropagation(); deleteChat(c.id); });
+    item.append(left, del);
+    item.addEventListener('click', () => openChat(c.id));
+    chatlistEl.appendChild(item);
+  });
+}
+function resetView() {
+  messagesEl.innerHTML = ''; upbarEl.innerHTML = ''; attachedFiles = [];
+  $('#src-list').innerHTML = '<p class="text-xs text-slate-400 leading-relaxed">Citations from your current conversation will appear here as Aira gathers them.</p>';
+  $('#srccount').textContent = '0';
+}
+function openChat(id) {
+  if (busy) return;
+  curId = id; resetView();
+  const c = curChat();
+  if (c) c.messages.forEach(m => m.role === 'user' ? addUserMsg(m.text, m.files || []) : addAnswerMsg(m.text, m.sources || [], m.tools || [], m.elapsed));
+  refreshDrawer();
+  renderHistory(); scrollDown();
+}
+function newChat() { if (busy) return; curId = null; resetView(); renderHistory(); qEl.focus(); }
+function deleteChat(id) {
+  if (busy) return;
+  const token = localStorage.getItem('aira_auth_token');
+  chats = chats.filter(c => c.id !== id);
+  if (curId === id) { curId = null; resetView(); }
+  if (token) {
+    fetch('/api/chats/' + encodeURIComponent(id), {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    }).catch(() => {});
+  }
+  renderHistory();
+}
+$('#newchat').addEventListener('click', newChat);
+
+// ---------------- kind switching (Research, Deep Search, Code & Fix) ----------------
+function setKind(k) {
+  if (busy) return;
+  kind = k;
+  $$('.kindbtn').forEach(b => {
+    const on = b.dataset.kind === k;
+    b.className = 'kindbtn flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full transition-all text-xs ' +
+      (on ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-md font-bold ring-2 ring-indigo-200' : 'hover:text-slate-900 text-slate-600 font-medium');
+  });
+  curId = null; resetView(); renderHistory();
+  const K = KINDS[k];
+  if ($('#herosub')) $('#herosub').textContent = K.hero;
+  if ($('#activeplatformname')) $('#activeplatformname').textContent = 'Platform: ' + K.label;
+  if ($('#dockmodebold')) $('#dockmodebold').textContent = K.label + ' Mode';
+  if ($('#dockmodedesc')) $('#dockmodedesc').textContent = K.desc;
+  qEl.placeholder = k === 'bugfix' ? 'Paste the broken code and describe what goes wrong…' : 'Ask a research question, paste code, or attach files…';
+}
+$$('.kindbtn').forEach(b => b.addEventListener('click', () => setKind(b.dataset.kind)));
+
+// ---------------- helpers ----------------
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function scrollDown() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+function md(s) {
+  const blocks = s.split(/\n(?=```)/);
+  return blocks.map(block => {
+    if (block.startsWith('```')) {
+      const m = block.match(/```(?:\w+)?\n?([\s\S]*?)```/);
+      return '<pre><code>' + esc(m ? m[1] : block) + '</code></pre>';
+    }
+    let h = esc(block);
+    h = h.replace(/`([^`\n]+)`/g, (m, c) => '<code>' + c + '</code>');
+    h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    h = h.replace(/^### (.*)$/gm, '<h4>$1</h4>');
+    h = h.replace(/^## (.*)$/gm, '<h3>$1</h3>');
+    h = h.replace(/^# (.*)$/gm, '<h2>$1</h2>');
+    h = h.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return h;
+  }).join('');
+}
+function splitSources(mdText) {
+  let sources = [];
+  const m = mdText.match(/\n?#{0,3}\s*(?:\*\*)?Sources(?:\*\*)?\s*:?\s*\n([\s\S]+)$/i);
+  if (m) {
+    mdText = mdText.slice(0, m.index);
+    m[1].split('\n').forEach(line => {
+      const x = line.match(/^\s*(?:\d+[\.\)]|[-*])\s+(.+)$/);
+      if (x) sources.push(x[1].trim());
+    });
+  }
+  return { body: mdText, sources };
+}
+function srcLink(s) {
+  const m = s.match(/\((https?:[^)\s]+)\)/) || s.match(/(https?:\/\/[^\s)\]]+)/);
+  return m ? m[1] : null;
+}
+function srcTitle(s) {
+  return s.replace(/\((https?:[^)\s]+)\)/, '').replace(/https?:\/\/[^\s)\]]+/, '').replace(/[\s—\-|.]+$/, '').trim() || '(source)';
+}
+function domainOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'link'; } }
+
+// drawer sources (all sources in current chat, in order, deduped)
+function refreshDrawer() {
+  const c = curChat();
+  const seen = new Set(), all = [];
+  if (c) c.messages.forEach(m => (m.sources || []).forEach(s => {
+    const u = srcLink(s) || s; if (!seen.has(u)) { seen.add(u); all.push(s); }
+  }));
+  $('#srccount').textContent = all.length;
+  if (!all.length) {
+    $('#src-list').innerHTML = '<p class="text-xs text-slate-400 leading-relaxed">Citations from your current conversation will appear here as Aira gathers them.</p>';
+    return;
+  }
+  $('#src-list').innerHTML = all.map((s, i) => {
+    const u = srcLink(s);
+    return '<div class="p-4 rounded-2xl bg-slate-50/70 border border-slate-200 hover:border-indigo-300 transition group">' +
+      '<div class="flex items-start justify-between"><span class="text-[11px] font-mono font-bold text-indigo-700 bg-indigo-100/70 px-2 py-0.5 rounded-md">Citation [' + (i+1) + ']</span></div>' +
+      '<h4 class="text-sm font-bold text-slate-900 mt-2.5 group-hover:text-indigo-600 transition">' + esc(srcTitle(s)) + '</h4>' +
+      (u ? '<div class="mt-3 pt-2.5 border-t border-slate-200/80 flex items-center justify-between text-[11px]"><span class="font-mono text-[10px] text-slate-500">' + esc(domainOf(u)) + '</span><a class="text-indigo-600 hover:text-indigo-800 font-medium" href="' + esc(u) + '" target="_blank" rel="noopener">Inspect →</a></div>' : '') +
+      '</div>';
+  }).join('');
+}
+
+// ---------------- message rendering ----------------
+function addUserMsg(text, files) {
+  $('#emptyhero') && $('#emptyhero').remove();
+  const when = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const row = document.createElement('div');
+  row.className = 'flex justify-end items-start space-x-3';
+  let fileChips = '';
+  if (files && files.length) fileChips = '<div class="flex items-center gap-1.5 mt-1.5 justify-end">' +
+    files.map(f => '<span class="text-[10px] font-mono font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-md">📄 ' + esc(f) + '</span>').join('') + '</div>';
+  row.innerHTML =
+    '<div class="flex flex-col items-end max-w-xl">' +
+      '<div class="flex items-center space-x-2 mb-1.5"><span class="text-[11px] text-slate-400 font-mono">' + when + '</span><span class="text-xs font-semibold text-slate-700">You</span></div>' +
+      '<div class="px-4 py-3 rounded-2xl rounded-tr-sm bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-glow-violet text-sm md:text-[15px] font-medium leading-relaxed whitespace-pre-wrap">' + esc(text) + '</div>' +
+      fileChips +
+    '</div>' +
+    '<div class="w-8 h-8 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center text-xs font-bold text-slate-700 shadow-sm shrink-0 mt-6">K</div>';
+  messagesEl.appendChild(row); scrollDown();
+}
+
+function addAnswerMsg(text, sources, tools, elapsed) {
+  const { body, sources: parsed } = splitSources(text);
+  const srcs = (sources && sources.length) ? sources : parsed;
+  const row = document.createElement('div');
+  row.className = 'flex items-start space-x-3.5';
+  const card = document.createElement('article');
+  card.className = 'flex-1 space-y-4';
+  const badge = elapsed ? '<span class="text-[10px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full font-medium">Synthesized in ' + esc(elapsed) + '</span>' : '';
+  let inner =
+    '<div class="flex items-center space-x-3"><span class="text-sm font-bold text-slate-900 tracking-wide">Aira</span>' + badge + '</div>' +
+    '<div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-card-subtle relative overflow-hidden">' +
+      '<div class="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-indigo-500 via-cyan-400 to-indigo-500"></div>' +
+      '<div class="md-body">' + md(body) + '</div>';
+  if (srcs.length) {
+    inner += '<div class="mt-6 pt-5 border-t border-slate-100">' +
+      '<div class="flex items-center justify-between mb-3"><span class="text-xs font-bold uppercase tracking-wider text-slate-700">Verified Sources</span><span class="text-[11px] text-slate-400 font-mono">' + srcs.length + ' citation' + (srcs.length > 1 ? 's' : '') + ' utilized</span></div>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">' +
+      srcs.map((s, i) => {
+        const u = srcLink(s);
+        return '<a class="flex items-center space-x-3 p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100/80 border border-slate-200/90 hover:border-indigo-300 transition shadow-sm" ' + (u ? 'href="' + esc(u) + '" target="_blank" rel="noopener"' : '') + '>' +
+          '<div class="w-6 h-6 rounded-lg bg-indigo-100 flex items-center justify-center text-xs font-mono font-bold text-indigo-700 shrink-0">' + (i+1) + '</div>' +
+          '<div class="overflow-hidden flex-1"><p class="text-xs font-semibold text-slate-800 truncate">' + esc(srcTitle(s).slice(0,70)) + '</p><p class="text-[10px] text-slate-500 truncate font-mono">' + esc(u ? domainOf(u) : 'reference') + '</p></div></a>';
+      }).join('') + '</div></div>';
+  }
+  inner += '</div>';
+  // toolbar
+  const aid = 'ans-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+  inner += '<div class="flex items-center justify-between text-slate-500 text-xs px-1">' +
+    '<div class="flex items-center space-x-1">' +
+      '<button data-act="copy" data-id="' + aid + '" class="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg hover:text-slate-800 hover:bg-slate-100 transition font-medium"><span>⧉</span><span class="hidden sm:inline">Copy</span></button>' +
+      '<button data-act="read" data-id="' + aid + '" class="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg hover:text-slate-800 hover:bg-slate-100 transition font-medium"><span>🔊</span><span class="hidden sm:inline">Read Aloud</span></button>' +
+      '<button data-act="regen" data-id="' + aid + '" class="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg hover:text-slate-800 hover:bg-slate-100 transition font-medium"><span>↻</span><span class="hidden sm:inline">Regenerate</span></button>' +
+    '</div>' +
+    (tools && tools.length ? '<span class="text-[10px] font-mono text-slate-400 truncate max-w-[240px]" title="' + esc(tools.join(' → ')) + '">' + esc(tools.join(' → ')) + '</span>' : '') +
+  '</div>';
+  card.innerHTML = inner;
+  card.dataset.ansid = aid;
+  card.dataset.rawtext = text;
+  const avatar = document.createElement('div');
+  avatar.className = 'w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-500 p-[1px] shadow-sm shrink-0 mt-1';
+  avatar.innerHTML = '<div class="w-full h-full bg-white rounded-[11px] flex items-center justify-center"><span class="font-extrabold text-xs text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-cyan-600">A</span></div>';
+  row.append(avatar, card);
+  messagesEl.appendChild(row); scrollDown();
+  refreshDrawer();
+  return card;
+}
+
+// toolbar actions (delegated)
+messagesEl.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const card = btn.closest('article');
+  const raw = card ? card.dataset.rawtext || '' : '';
+  const { body } = splitSources(raw);
+  if (btn.dataset.act === 'copy') {
+    navigator.clipboard.writeText(body.replace(/\*\*/g,'').replace(/`/g,'')).then(() => {
+      const old = btn.innerHTML; btn.innerHTML = '<span>✓</span><span class="hidden sm:inline">Copied</span>';
+      setTimeout(() => btn.innerHTML = old, 1500);
+    });
+  } else if (btn.dataset.act === 'read') {
+    if (speechSynthesis.speaking) { speechSynthesis.cancel(); return; }
+    const u = new SpeechSynthesisUtterance(body.replace(/```[\s\S]*?```/g, ' code block omitted ').replace(/\*\*|`|\[|\]|\(https?:[^)]*\)/g, ''));
+    u.rate = 1.02; speechSynthesis.speak(u);
+  } else if (btn.dataset.act === 'regen') {
+    const c = curChat();
+    if (!c || busy) return;
+    const lastUser = [...c.messages].reverse().find(m => m.role === 'user');
+    if (!lastUser) return;
+    // re-ask with the same files if they were noted
+    qEl.value = lastUser.text;
+    send();
+  }
+});
+
+// ---------------- file upload (supports 50+ PDFs) ----------------
+$('#attach').addEventListener('click', () => $('#fileinput').click());
+$('#fileinput').addEventListener('change', async () => {
+  const files = Array.from($('#fileinput').files);
+  if (!files.length) return;
+
+  if (files.length > 5) {
+    // 50+ PDF Batch Mode
+    const chipId = 'b' + Date.now();
+    const chip = document.createElement('span');
+    chip.className = 'flex items-center gap-2 text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg px-3 py-1.5 shadow-sm';
+    chip.innerHTML = `<span>📚 Batch Upload (${files.length} PDFs)</span><span class="st text-slate-400 font-mono">indexing…</span><span class="x cursor-pointer hover:text-rose-500">✕</span>`;
+    upbarEl.appendChild(chip);
+    const st = chip.querySelector('.st');
+    const rm = () => { chip.remove(); attachedFiles = attachedFiles.filter(x => x.chipId !== chipId); };
+    chip.querySelector('.x').addEventListener('click', rm);
+
+    try {
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      const r = await fetch('/api/upload-batch', { method: 'POST', body: fd });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || 'Batch upload failed');
+
+      attachedFiles.push({
+        chipId,
+        name: `${j.successful} PDFs (Batch)`,
+        text: `Batch attached: ${j.total_indexed_documents} documents indexed across ${j.total_chunks} searchable chunks.`,
+        chars: j.total_chunks * 1500,
+        truncated: false,
+        isBatch: true,
+      });
+
+      st.textContent = `✓ ${j.successful} indexed (${j.total_chunks} chunks)`;
+      st.className = 'st text-emerald-600 font-mono';
+    } catch (err) {
+      chip.className = 'flex items-center gap-1.5 text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 rounded-lg px-2 py-1';
+      st.textContent = '✗ ' + (err.message || 'failed');
+      setTimeout(() => { try { rm(); } catch {} }, 4000);
+    }
+  } else {
+    // Standard 1-5 files
+    for (const f of files) {
+      const chipId = 'f' + Date.now() + Math.random().toString(36).slice(2,6);
+      const chip = document.createElement('span');
+      chip.className = 'flex items-center gap-1.5 text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg px-2 py-1';
+      chip.innerHTML = '<span>📄 ' + esc(f.name) + '</span><span class="st text-slate-400 font-mono">…</span><span class="x cursor-pointer hover:text-rose-500">✕</span>';
+      upbarEl.appendChild(chip);
+      const st = chip.querySelector('.st');
+      const rm = () => { chip.remove(); attachedFiles = attachedFiles.filter(x => x.chipId !== chipId); };
+      chip.querySelector('.x').addEventListener('click', rm);
+      try {
+        const fd = new FormData(); fd.append('file', f);
+        const r = await fetch('/api/upload', { method:'POST', body: fd });
+        const j = await r.json();
+        if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
+        attachedFiles.push({ chipId, name: f.name, text: j.text, chars: j.chars, truncated: !!j.truncated });
+        st.textContent = '✓ ' + (j.chars > 1000 ? Math.round(j.chars/1000) + 'k chars' : j.chars + ' chars');
+        st.className = 'st text-emerald-600 font-mono';
+      } catch (err) {
+        chip.className = 'flex items-center gap-1.5 text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 rounded-lg px-2 py-1';
+        st.textContent = '✗ ' + (err.message || 'failed');
+        setTimeout(() => { try { rm(); } catch {} }, 4000);
+      }
+    }
+  }
+  $('#fileinput').value = '';
+});
+
+// ---------------- mic (Web Speech API) ----------------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null, recOn = false;
+if (SR) {
+  recog = new SR(); recog.continuous = true; recog.interimResults = true;
+  recog.lang = navigator.language || 'en-US';
+  recog.onresult = e => {
+    let final = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) final += e.results[i][0].transcript;
+    if (final) qEl.value = (qEl.value + (qEl.value && !qEl.value.endsWith(' ') ? ' ' : '') + final.trim()).trim();
+    qEl.focus();
+  };
+  recog.onend = () => { if (recOn) { try { recog.start(); } catch {} } };
+  recog.onerror = ev => { if (ev.error === 'not-allowed') { stopRec(); alert('Microphone permission denied — allow mic access to use voice input.'); } };
+} else {
+  $('#mic').disabled = true; $('#mic').title = 'Voice input needs Chrome or Edge';
+}
+function stopRec() { recOn = false; $('#mic').classList.remove('text-rose-600','bg-rose-50','animate-pulse'); if (recog) { try { recog.stop(); } catch {} } }
+$('#mic').addEventListener('click', () => {
+  if (!recog) return;
+  if (recOn) { stopRec(); return; }
+  try { recOn = true; recog.start(); $('#mic').classList.add('text-rose-600','bg-rose-50','animate-pulse'); } catch { recOn = false; }
+});
+
+// ---------------- export modal ----------------
+const modal = $('#exportmodal');
+$('#download').addEventListener('click', () => {
+  const c = curChat();
+  if (!c || !c.messages.length) { alert('Nothing to export yet — ask something first.'); return; }
+  $('#exportsub').textContent = KINDS[kind].label + ' chat: ' + (c.title || 'chat').slice(0, 48);
+  modal.classList.remove('hidden'); modal.classList.add('flex');
+});
+const closeModal = () => { modal.classList.add('hidden'); modal.classList.remove('flex'); };
+$('#exportcancel').addEventListener('click', closeModal);
+modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+$$('.fmtbtn').forEach(b => b.addEventListener('click', async () => {
+  const c = curChat(); if (!c) { closeModal(); return; }
+  b.disabled = true;
+  try {
+    const r = await fetch('/api/export', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ format: b.dataset.fmt, mode: KINDS[kind].mode, title: c.title, messages: c.messages })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    const cd = r.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = m ? m[1] : 'aira-chat.' + b.dataset.fmt;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    closeModal();
+  } catch (e) { alert('Export failed: ' + e.message); }
+  finally { b.disabled = false; }
+}));
+
+// ---------------- ask ----------------
+qEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+sendEl.addEventListener('click', send);
+$$('.quickq').forEach(b => b.addEventListener('click', () => { qEl.value = b.dataset.q; send(); }));
+
+async function send() {
+  const q = qEl.value.trim();
+  if ((!q && !attachedFiles.length) || busy) return;
+  busy = true; sendEl.disabled = true;
+  const t0 = performance.now();
+  let bubble = null;
+  try {
+    if (!curChat()) {
+      curId = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+      chats.push({ id: curId, kind, title: (q || attachedFiles[0].name || 'Files').slice(0,60), created: Date.now(), updated: Date.now(), messages: [] });
+    }
+    const chat = curChat();
+    let question = q, fileCtx = '';
+    if (attachedFiles.length) {
+      fileCtx = '\n\n--- ATTACHED FILES (user uploads, use as reference/context) ---\n';
+      for (const f of attachedFiles) fileCtx += '\n[FILE: ' + f.name + (f.truncated ? ' (truncated)' : '') + ']\n' + f.text + '\n';
+      question = q + fileCtx;
+    }
+    addUserMsg(q, attachedFiles.map(f => f.name));
+    chat.messages.push({ role:'user', text: q, files: attachedFiles.map(f => f.name) });
+    qEl.value = ''; upbarEl.innerHTML = '';
+    const sentFiles = attachedFiles; attachedFiles = [];
+    chat.updated = Date.now(); saveChats(); renderHistory();
+
+    // placeholder answer card with progress
+    bubble = addAnswerMsg('', [], [], null);
+    const card = bubble.querySelector('.bg-white');
+    card.innerHTML = '<div class="flex items-center gap-3 text-slate-500 text-sm py-1"><span class="w-4 h-4 rounded-full border-2 border-slate-200 border-t-indigo-500 animate-spin inline-block"></span><span class="label">Thinking…</span></div>';
+    const label = card.querySelector('.label');
+
+    const K = KINDS[kind];
+    const token = localStorage.getItem('aira_auth_token');
+    const askHeaders = { 'Content-Type': 'application/json' };
+    if (token) askHeaders['Authorization'] = 'Bearer ' + token;
+
+    const res = await fetch('/api/ask', {
+      method: 'POST',
+      headers: askHeaders,
+      body: JSON.stringify({ mode: K.mode, depth: K.depth, question })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '', answer = '';
+    const toolsUsed = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, idx).trim(); buf = buf.slice(idx + 2);
+        if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+        let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+        if (ev.type === 'tool') {
+          toolsUsed.push(ev.status || ev.tool);
+          label.textContent = (ev.status || 'Working') + (ev.args && ev.args.query ? ' “' + ev.args.query + '”' : '');
+        } else if (ev.type === 'final') answer = ev.answer || '(empty response)';
+        else if (ev.type === 'error') answer += (answer ? '\n\n' : '') + '⚠ ' + (ev.message || 'unknown error');
+      }
+    }
+    // swap placeholder for real answer
+    bubble.remove();
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(1) + 's';
+    const { sources } = splitSources(answer);
+    addAnswerMsg(answer, sources, toolsUsed, elapsed);
+    chat.messages.push({ role:'assistant', text: answer, sources, tools: toolsUsed, elapsed });
+    chat.updated = Date.now(); saveChats(); renderHistory();
+
+    // suggested follow-ups (honest templates built from the actual question)
+    if (q) {
+      const topic = q.replace(/[?.!]+$/,'').slice(0, 60);
+      const sug = document.createElement('div');
+      sug.className = 'space-y-2 pt-1 ml-11';
+      sug.innerHTML = '<span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Suggested Follow-ups</span>' +
+        '<div class="flex flex-wrap gap-2">' +
+        ['Explain ' + topic + ' in simple terms', 'What are the main criticisms of ' + topic + '?', 'What is new in 2026 about ' + topic + '?']
+          .map(s => '<button class="fup text-xs bg-white hover:bg-slate-50 text-slate-700 hover:text-indigo-600 px-3 py-1.5 rounded-full border border-slate-200 hover:border-indigo-300 shadow-sm transition font-medium">' + esc(s) + ' →</button>').join('') +
+        '</div>';
+      sug.querySelectorAll('.fup').forEach(b => b.addEventListener('click', () => { qEl.value = b.textContent.replace(/ →$/,''); send(); }));
+      messagesEl.appendChild(sug); scrollDown();
+    }
+  } catch (e) {
+    const msg = '⚠ ' + (e && e.message ? e.message : 'request failed');
+    if (bubble) bubble.remove();
+    addAnswerMsg(msg, [], [], null);
+    const chat = curChat();
+    if (chat) { chat.messages.push({ role:'assistant', text: msg, sources: [], tools: [] }); chat.updated = Date.now(); saveChats(); renderHistory(); }
+  } finally {
+    busy = false; sendEl.disabled = false; scrollDown();
+  }
+}
+
+// ---------------- auth & user sessions (Database-Connected + Google Sign-In) ----------------
+let authMode = 'login'; // 'login' or 'register'
+let googleClientId = '';
+
+function showAuthGateway() {
+  const gw = $('#authgateway');
+  if (gw) {
+    gw.classList.remove('hidden');
+    gw.classList.add('flex');
+  }
+}
+
+function hideAuthGateway() {
+  const gw = $('#authgateway');
+  if (gw) {
+    gw.classList.add('hidden');
+    gw.classList.remove('flex');
+  }
+}
+
+function updateAuthUI(user) {
+  if (user) {
+    $('#signinbtn').classList.add('hidden');
+    $('#userprofile').classList.remove('hidden');
+    $('#userprofile').classList.add('flex');
+    $('#usernametext').textContent = user.username || user.name || 'User';
+    if (user.avatar_url) {
+      $('#useravatar').innerHTML = `<img src="${esc(user.avatar_url)}" alt="Avatar" class="w-full h-full rounded-full object-cover"/>`;
+    } else {
+      $('#useravatar').textContent = ((user.username || user.name || 'U')[0]).toUpperCase();
+    }
+  } else {
+    $('#signinbtn').classList.remove('hidden');
+    $('#userprofile').classList.add('hidden');
+    $('#userprofile').classList.remove('flex');
+    $('#useravatar').textContent = 'U';
+  }
+}
+
+async function checkAuth() {
+  const token = localStorage.getItem('aira_auth_token');
+  if (!token) {
+    updateAuthUI(null);
+    showAuthGateway();
+    return;
+  }
+  try {
+    const r = await fetch('/api/auth/me', { headers: { 'Authorization': 'Bearer ' + token } });
+    const j = await r.json();
+    if (r.ok && j.user) {
+      updateAuthUI(j.user);
+      hideAuthGateway();
+      await loadChatsFromDatabase();
+    } else {
+      localStorage.removeItem('aira_auth_token');
+      updateAuthUI(null);
+      showAuthGateway();
+    }
+  } catch {
+    updateAuthUI(null);
+    showAuthGateway();
+  }
+}
+
+// Initialize Google Identity Services
+async function initGoogleAuth() {
+  try {
+    const r = await fetch('/api/auth/google/config');
+    const j = await r.json();
+    if (j.ok && j.client_id) {
+      googleClientId = j.client_id;
+      if (window.google && window.google.accounts && window.google.accounts.id) {
+        google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: handleGoogleAuthCredential,
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
+      }
+    }
+  } catch {}
+}
+
+async function handleGoogleAuthCredential(response) {
+  $('#autherror').classList.add('hidden');
+  try {
+    const r = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential: response.credential }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || 'Google authentication failed');
+
+    localStorage.setItem('aira_auth_token', j.token);
+    updateAuthUI(j.user);
+    hideAuthGateway();
+    await loadChatsFromDatabase();
+  } catch (err) {
+    $('#autherror').textContent = err.message;
+    $('#autherror').classList.remove('hidden');
+  }
+}
+
+$('#googleauthbtn').addEventListener('click', async () => {
+  $('#autherror').classList.add('hidden');
+  // If Google client ID is configured and SDK is loaded, prompt standard Google One Tap / popup
+  if (googleClientId && window.google && window.google.accounts && window.google.accounts.id) {
+    google.accounts.id.prompt((notification) => {
+      if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+        // Fallback: render button if prompt blocked
+        const wrap = $('#g_id_signin_wrap');
+        wrap.classList.remove('hidden');
+        google.accounts.id.renderButton(wrap, { theme: 'outline', size: 'large', width: 280 });
+      }
+    });
+    return;
+  }
+
+  // Developer / Direct Google Sign-In prompt if client ID is not yet provisioned in .env
+  const inputEmail = prompt('Enter your Google Account email to Sign in with Google:', 'saianandk999@gmail.com');
+  if (!inputEmail || !inputEmail.includes('@')) return;
+  const displayName = inputEmail.split('@')[0];
+
+  try {
+    const r = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: inputEmail,
+        name: displayName,
+        google_id: 'g_' + Math.random().toString(36).slice(2, 12),
+        picture: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=6366F1&color=fff`,
+      }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || 'Google login failed');
+
+    localStorage.setItem('aira_auth_token', j.token);
+    updateAuthUI(j.user);
+    hideAuthGateway();
+    await loadChatsFromDatabase();
+  } catch (err) {
+    $('#autherror').textContent = err.message;
+    $('#autherror').classList.remove('hidden');
+  }
+});
+
+$('#signinbtn').addEventListener('click', () => {
+  $('#autherror').classList.add('hidden');
+  showAuthGateway();
+});
+
+$('#tablogin').addEventListener('click', e => {
+  e.preventDefault();
+  authMode = 'login';
+  $('#tablogin').className = 'flex-1 text-xs font-bold pb-2 text-indigo-600 border-b-2 border-indigo-600 transition text-center';
+  $('#tabregister').className = 'flex-1 text-xs font-semibold pb-2 text-slate-400 hover:text-slate-700 transition text-center';
+  $('#authemaildiv').classList.add('hidden');
+  $('#authemail').required = false;
+  $('#authsubmit').textContent = 'Verify & Enter Workspace →';
+  $('#autherror').classList.add('hidden');
+});
+
+$('#tabregister').addEventListener('click', e => {
+  e.preventDefault();
+  authMode = 'register';
+  $('#tabregister').className = 'flex-1 text-xs font-bold pb-2 text-indigo-600 border-b-2 border-indigo-600 transition text-center';
+  $('#tablogin').className = 'flex-1 text-xs font-semibold pb-2 text-slate-400 hover:text-slate-700 transition text-center';
+  $('#authemaildiv').classList.remove('hidden');
+  $('#authemail').required = true;
+  $('#authsubmit').textContent = 'Create Account & Enter →';
+  $('#autherror').classList.add('hidden');
+});
+
+$('#authform').addEventListener('submit', async e => {
+  e.preventDefault();
+  const username = $('#authusername').value.trim();
+  const email = $('#authemail').value.trim();
+  const password = $('#authpassword').value;
+  $('#autherror').classList.add('hidden');
+  $('#authsubmit').disabled = true;
+
+  try {
+    const url = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+    const payload = authMode === 'register' ? { username, email, password } : { username_or_email: username, password };
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || 'Authentication failed');
+
+    localStorage.setItem('aira_auth_token', j.token);
+    updateAuthUI(j.user);
+    hideAuthGateway();
+    $('#authpassword').value = '';
+    await loadChatsFromDatabase();
+  } catch (err) {
+    $('#autherror').textContent = err.message;
+    $('#autherror').classList.remove('hidden');
+  } finally {
+    $('#authsubmit').disabled = false;
+  }
+});
+
+// Quick Demo Login Chip Handlers
+$$('.quickauthchip').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $('#authusername').value = btn.dataset.user;
+    $('#authpassword').value = btn.dataset.pass;
+    if (authMode !== 'login') $('#tablogin').click();
+    $('#authform').dispatchEvent(new Event('submit'));
+  });
+});
+
+$('#logoutbtn').addEventListener('click', async e => {
+  e.stopPropagation();
+  const token = localStorage.getItem('aira_auth_token');
+  if (token) {
+    try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } }); } catch {}
+    localStorage.removeItem('aira_auth_token');
+  }
+  chats = [];
+  curId = null;
+  resetView();
+  renderHistory();
+  updateAuthUI(null);
+  showAuthGateway();
+});
+
+// ---------------- traffic & health status ----------------
+function updateTraffic(t) {
+  if (!t) return;
+  const dot = $('#trafficdot'), text = $('#traffictext'), badge = $('#trafficbadge');
+  badge.classList.remove('hidden');
+  if (t.high_traffic || t.current_provider === 'secondary') {
+    dot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-ping';
+    text.textContent = `Secondary API (${t.active_requests} load)`;
+    badge.className = 'hidden sm:flex items-center space-x-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-full text-[11px] font-medium text-amber-700';
+  } else {
+    dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+    text.textContent = t.active_requests > 0 ? `Primary API (${t.active_requests} busy)` : 'Primary API';
+    badge.className = 'hidden sm:flex items-center space-x-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-full text-[11px] font-medium text-slate-600';
+  }
+}
+
+function pollStatus() {
+  fetch('/api/health').then(r => r.json()).then(h => {
+    const sb = $('#statusbadge');
+    const isMysql = h.database && h.database.backend === 'mysql';
+    if (h.key_loaded) {
+      $('#statustext').textContent = isMysql ? 'Agent (MySQL online)' : 'Agent online';
+    } else {
+      sb.className = 'flex items-center space-x-2 px-3 py-1 bg-rose-50 border border-rose-200 rounded-full text-[11px] font-medium text-rose-700';
+      $('#statustext').textContent = 'No API key — set .env';
+    }
+    if ($('#gatewaydbtag')) {
+      $('#gatewaydbtag').textContent = isMysql ? 'MySQL chat_app Database Active' : 'Local Storage Engine Active';
+    }
+    if (h.traffic) updateTraffic(h.traffic);
+  }).catch(() => {
+    const sb = $('#statusbadge');
+    sb.className = 'flex items-center space-x-2 px-3 py-1 bg-rose-50 border border-rose-200 rounded-full text-[11px] font-medium text-rose-700';
+    $('#statustext').textContent = 'Server unreachable';
+  });
+}
+
+// ---------------- init ----------------
+setKind('research');
+renderHistory();
+checkAuth();
+initGoogleAuth();
+pollStatus();
+setInterval(pollStatus, 7000);
+</script>
+</body></html>
