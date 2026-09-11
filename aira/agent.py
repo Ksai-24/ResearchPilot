@@ -50,15 +50,10 @@ def _sanitize_messages_for_route(
                     "content": f"[Tool Observation]:\n{content}",
                 })
             elif role == "assistant" and "tool_calls" in m and (is_gemini or force_no_tools):
-                content = m.get("content") or ""
-                tool_names = [
-                    tc.get("function", {}).get("name", "")
-                    for tc in m.get("tool_calls", [])
-                    if isinstance(tc, dict)
-                ]
-                if tool_names and not content:
-                    content = f"[Executed research tools: {', '.join(filter(None, tool_names))}]"
-                sanitized.append({"role": "assistant", "content": content})
+                # When converting assistant tool call turns to text turns, keep existing text or leave clean
+                content = (m.get("content") or "").strip()
+                if content:
+                    sanitized.append({"role": "assistant", "content": content})
             else:
                 sanitized.append(m)
         return sanitized
@@ -152,6 +147,8 @@ def _resp_ok(resp: Any, require_content: bool) -> bool:
 _RAW_LEAK_MARKERS = (
     "<|start|>", "<|channel|>", "<|constrain|>", "<|message|>",
     "<|call|>", "<|end|>", "<|return|>", "<|commentary|>",
+    "[Executed research tools", "[executed research tools",
+    "[Tool Observation", "[tool observation",
 )
 
 
@@ -295,7 +292,11 @@ def _looks_like_scratch(text: str) -> bool:
     """Detect planning/narration leaked into a final answer (small-model habit)."""
     if _is_raw_leak(text):
         return True
-    t = text.lower()
+    t = (text or "").lower().strip()
+    if t.startswith("[executed research tools") or t.startswith("[tool observation") or t.startswith("[action:"):
+        return True
+    if len(t) < 50 and ("executed" in t or "observation" in t or "web_search" in t):
+        return True
     if "[1]" in t or "sources:" in t or "##" in text:
         return False  # looks like a real structured answer
     scratch_markers = (
