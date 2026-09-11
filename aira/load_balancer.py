@@ -44,6 +44,10 @@ class LoadBalancer:
         self._secondary_key_cached: str = ""
         self._secondary_url_cached: str = ""
 
+        self._tertiary_client: Optional[AsyncOpenAI] = None
+        self._tertiary_key_cached: str = ""
+        self._tertiary_url_cached: str = ""
+
         # Primary cooldown state on 429/rate-limit
         self._primary_rate_limited_until: float = 0.0
 
@@ -87,11 +91,36 @@ class LoadBalancer:
             )
         return self._secondary_client
 
+    def _get_tertiary_client(self) -> AsyncOpenAI:
+        tert_key = config.TERTIARY_API_KEY or config.SECONDARY_API_KEY or config.API_KEY
+        tert_url = config.TERTIARY_BASE_URL or "https://openrouter.ai/api/v1"
+        if (
+            self._tertiary_client is None
+            or self._tertiary_key_cached != tert_key
+            or self._tertiary_url_cached != tert_url
+        ):
+            if not tert_key:
+                raise RuntimeError(
+                    "No tertiary API key found."
+                )
+            self._tertiary_key_cached = tert_key
+            self._tertiary_url_cached = tert_url
+            self._tertiary_client = AsyncOpenAI(
+                api_key=tert_key,
+                base_url=tert_url,
+                timeout=config.REQUEST_TIMEOUT,
+            )
+        return self._tertiary_client
+
     def _clean_window(self, now: float) -> int:
         cutoff = now - 60.0
         while self._request_window and self._request_window[0] < cutoff:
             self._request_window.popleft()
         return len(self._request_window)
+
+    def is_primary_cooling_down(self) -> bool:
+        """Return True if primary provider is currently in cooldown due to limits/quota."""
+        return time.time() < self._primary_rate_limited_until
 
     def is_high_traffic(self) -> Tuple[bool, str]:
         """Check if system is currently experiencing high traffic."""
@@ -110,20 +139,31 @@ class LoadBalancer:
 
         return False, "Normal"
 
-    def report_rate_limit(self, provider: str = "primary", cooldown_seconds: int = 45):
+    def report_rate_limit(self, provider: str = "primary", cooldown_seconds: int = 120):
         """Mark primary provider as rate-limited, switching routing to secondary immediately."""
         if provider == "primary":
             self._primary_rate_limited_until = time.time() + cooldown_seconds
-            logger.warning("Primary API rate limit reported. Auto-routing to Secondary API for %ds.", cooldown_seconds)
+            logger.warning("Primary API limit/quota reported. Auto-routing to Secondary API for %ds.", cooldown_seconds)
 
-    def get_route(self, force_secondary: bool = False) -> Dict[str, Any]:
-        """Select active API provider with round-robin dual-pipe balancing under high traffic."""
+    def get_route(self, force_secondary: bool = False, force_tertiary: bool = False) -> Dict[str, Any]:
+        """Select active API provider with multi-pipe balancing and graceful fallback."""
+        if force_tertiary:
+            try:
+                client = self._get_tertiary_client()
+                return {
+                    "client": client,
+                    "model": config.TERTIARY_MODEL,
+                    "provider": "tertiary",
+                    "reason": "Tertiary fallback provider",
+                    "is_high_traffic": False,
+                }
+            except Exception as e:
+                logger.warning("Failed to initialize tertiary client: %s", e)
+
         now = time.time()
         high_traffic, reason = self.is_high_traffic()
 
-        if force_secondary:
-            pick_secondary = True
-        elif now < self._primary_rate_limited_until:
+        if force_secondary or now < self._primary_rate_limited_until:
             pick_secondary = True
         elif high_traffic:
             # Under high load (50 users), balance requests 50/50 across Primary and Secondary providers
@@ -143,7 +183,17 @@ class LoadBalancer:
                     "is_high_traffic": high_traffic,
                 }
             except Exception as e:
-                logger.warning("Failed to initialize secondary client (%s), falling back to primary", e)
+                logger.warning("Failed to initialize secondary client (%s), falling back to tertiary", e)
+                try:
+                    return {
+                        "client": self._get_tertiary_client(),
+                        "model": config.TERTIARY_MODEL,
+                        "provider": "tertiary",
+                        "reason": "Secondary failed, fell back to tertiary",
+                        "is_high_traffic": high_traffic,
+                    }
+                except Exception:
+                    pass
 
         client = self._get_primary_client()
         return {
