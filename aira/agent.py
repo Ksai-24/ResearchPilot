@@ -138,7 +138,9 @@ async def _create_with_retry(route: Dict[str, Any], kwargs: Dict[str, Any], requ
                 is_limit = any(
                     s in msg
                     for s in ("rate_limit", "rate limit", "tokens per minute", "TPM",
-                              "Request too large", "413", "429", "capacity", "503")
+                              "Request too large", "413", "429", "capacity", "503",
+                              "insufficient_user_quota", "credit limit is insufficient",
+                              "quota is running low", "402", "403")
                 )
                 is_provider_flake = (
                     "Provider returned error" in msg
