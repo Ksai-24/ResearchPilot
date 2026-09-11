@@ -37,15 +37,28 @@ class LoadBalancer:
 
         # Clients
         self._primary_client: Optional[AsyncOpenAI] = None
+        self._primary_key_cached: str = ""
+        self._primary_url_cached: str = ""
+
         self._secondary_client: Optional[AsyncOpenAI] = None
+        self._secondary_key_cached: str = ""
+        self._secondary_url_cached: str = ""
 
         # Primary cooldown state on 429/rate-limit
         self._primary_rate_limited_until: float = 0.0
 
     def _get_primary_client(self) -> AsyncOpenAI:
-        if self._primary_client is None:
+        if (
+            self._primary_client is None
+            or self._primary_key_cached != config.API_KEY
+            or self._primary_url_cached != config.BASE_URL
+        ):
             if not config.API_KEY:
-                raise RuntimeError("AIRA_API_KEY is not set in .env")
+                raise RuntimeError(
+                    "AIRA_API_KEY is not set in .env. Please set a valid API key (OpenRouter, Google Gemini, Groq, or OpenAI)."
+                )
+            self._primary_key_cached = config.API_KEY
+            self._primary_url_cached = config.BASE_URL
             self._primary_client = AsyncOpenAI(
                 api_key=config.API_KEY,
                 base_url=config.BASE_URL,
@@ -54,13 +67,22 @@ class LoadBalancer:
         return self._primary_client
 
     def _get_secondary_client(self) -> AsyncOpenAI:
-        if self._secondary_client is None:
-            sec_key = config.SECONDARY_API_KEY or config.API_KEY
+        sec_key = config.SECONDARY_API_KEY or config.API_KEY
+        sec_url = config.SECONDARY_BASE_URL or config.BASE_URL
+        if (
+            self._secondary_client is None
+            or self._secondary_key_cached != sec_key
+            or self._secondary_url_cached != sec_url
+        ):
             if not sec_key:
-                raise RuntimeError("Neither AIRA_SECONDARY_API_KEY nor AIRA_API_KEY is set in .env")
+                raise RuntimeError(
+                    "Neither AIRA_SECONDARY_API_KEY nor AIRA_API_KEY is set in .env."
+                )
+            self._secondary_key_cached = sec_key
+            self._secondary_url_cached = sec_url
             self._secondary_client = AsyncOpenAI(
                 api_key=sec_key,
-                base_url=config.SECONDARY_BASE_URL,
+                base_url=sec_url,
                 timeout=config.REQUEST_TIMEOUT,
             )
         return self._secondary_client

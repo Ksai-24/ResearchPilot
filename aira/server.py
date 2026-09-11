@@ -234,6 +234,7 @@ async def get_current_user_required(authorization: Optional[str] = Header(None))
 @app.get("/api/health", dependencies=[Depends(rate_limit(120, 60, "health"))])
 async def health():
     """System health check, provider configuration, and runtime status."""
+    config.reload_config()
     traffic_stats = load_balancer.get_stats()
     db_info = getattr(app.state, "db_info", {"status": "uninitialized"})
     return {
