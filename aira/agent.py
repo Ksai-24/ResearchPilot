@@ -157,7 +157,20 @@ async def _create_with_retry(route: Dict[str, Any], kwargs: Dict[str, Any], requ
                     print(f"  [upstream provider flake on {model} — trying next]", flush=True)
                     break  # next model in the chain
                 elif attempt == 0:
-                    raise  # genuine error (auth, bad request): don't hammer
+                    if "401" in msg or "User not found" in msg or "invalid_api_key" in msg or "Unauthorized" in msg:
+                        raise RuntimeError(
+                            f"LLM API Authentication Failed (HTTP 401: Invalid or expired API Key).\n\n"
+                            f"**Provider Details**: `{msg}`\n\n"
+                            f"🔧 **How to Fix**:\n"
+                            f"1. Open your `.env` file.\n"
+                            f"2. Set a valid `AIRA_API_KEY` from one of the following:\n"
+                            f"   - **OpenRouter (Free / Paid)**: https://openrouter.ai/keys\n"
+                            f"   - **Google Gemini (Free)**: https://aistudio.google.com/app/apikey (Set `AIRA_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/` and `AIRA_MODEL=gemini-2.0-flash`)\n"
+                            f"   - **Groq (Free)**: https://console.groq.com/keys (Set `AIRA_BASE_URL=https://api.groq.com/openai/v1` and `AIRA_MODEL=llama-3.3-70b-versatile`)\n"
+                            f"   - **OpenAI**: https://platform.openai.com/api-keys\n"
+                            f"3. Save `.env` — AIRA automatically hot-reloads your new key!"
+                        ) from e
+                    raise  # genuine error (bad request): don't hammer
             if attempt == 2 and model != models[-1]:
                 print(f"  [falling back from {model}]", flush=True)
     raise last_exc if last_exc else RuntimeError("all models failed")
@@ -197,6 +210,7 @@ def _asks_permission(text: str) -> bool:
 
 async def run_agent(mode: str, depth: str, question: str) -> AsyncGenerator[Dict[str, Any], None]:
     """Yield event dicts describing agent progress, ending with {'final': ...}."""
+    config.reload_config()
     async with load_balancer.acquire_slot():
         route = load_balancer.get_route()
         if route.get("is_high_traffic"):

@@ -5,19 +5,49 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def load_env() -> None:
+def reload_config() -> None:
+    """Reload settings from .env file into os.environ and module variables."""
+    global API_KEY, BASE_URL, MODEL, JUDGE_MODEL, FALLBACK_MODELS
+    global SECONDARY_API_KEY, SECONDARY_BASE_URL, SECONDARY_MODEL
+    global GOOGLE_CLIENT_ID, MAX_TOOL_ROUNDS, REQUEST_TIMEOUT, TEMPERATURE, MAX_TOKENS
+
     env_file = ROOT / ".env"
-    if not env_file.exists():
-        return
-    for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        key = key.strip()
-        val = val.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = val
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key:
+                os.environ[key] = val
+
+    API_KEY = os.environ.get("AIRA_API_KEY", "")
+    BASE_URL = os.environ.get("AIRA_BASE_URL", "https://api.openai.com/v1")
+    MODEL = os.environ.get("AIRA_MODEL", "gpt-4o-mini")
+    JUDGE_MODEL = os.environ.get("AIRA_JUDGE_MODEL", MODEL)
+    FALLBACK_MODELS = [
+        m.strip()
+        for m in os.environ.get(
+            "AIRA_FALLBACK_MODELS",
+            "openai/gpt-oss-20b,mistralai/mistral-nemo",
+        ).split(",")
+        if m.strip()
+    ]
+    MAX_TOOL_ROUNDS = int(os.environ.get("AIRA_MAX_TOOL_ROUNDS", "8"))
+    REQUEST_TIMEOUT = float(os.environ.get("AIRA_TIMEOUT", "180"))
+    TEMPERATURE = os.environ.get("AIRA_TEMPERATURE", "0.2")
+    MAX_TOKENS = os.environ.get("AIRA_MAX_TOKENS", "4096")
+
+    SECONDARY_API_KEY = os.environ.get("AIRA_SECONDARY_API_KEY", "") or API_KEY
+    SECONDARY_BASE_URL = os.environ.get("AIRA_SECONDARY_BASE_URL", BASE_URL)
+    SECONDARY_MODEL = os.environ.get("AIRA_SECONDARY_MODEL", "google/gemini-2.5-flash-lite")
+    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+
+
+def load_env() -> None:
+    reload_config()
 
 
 load_env()
